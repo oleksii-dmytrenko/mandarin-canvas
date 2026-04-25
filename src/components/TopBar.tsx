@@ -120,6 +120,7 @@ export function TopBar({ pageRef, canUndo, canRedo, onUndo, onRedo }: TopBarProp
             aria-label={`Use ${color}`}
             className={`swatch ${currentColor === color ? "active" : ""}`}
             key={color}
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               setCurrentColor(color);
               if (selectedBlock) updateBlock(selectedBlock.id, { color });

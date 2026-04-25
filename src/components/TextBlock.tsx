@@ -23,7 +23,7 @@ export function TextBlock({
   draftTextRef,
   composingRef,
 }: TextBlockProps) {
-  const { deleteBlock, updateBlock, setFocusedBlockId } = useCanvasStore();
+  const { deleteBlock, updateBlock, setFocusedBlockId, setSelectedId } = useCanvasStore();
   const isActiveSelection = isSelected && isInteractive;
   const showAnnotations = block.annotation !== "plain";
   const editableRef = useRef<HTMLDivElement>(null);
@@ -53,7 +53,7 @@ export function TextBlock({
 
     const frame = window.requestAnimationFrame(focusAtEnd);
     return () => window.cancelAnimationFrame(frame);
-  }, [block.id, draftTextRef, isActiveSelection, setFocusedBlockId]);
+  }, [block.annotation, block.id, draftTextRef, isActiveSelection, setFocusedBlockId]);
 
   const handleFocus = (event: React.FocusEvent<HTMLDivElement>) => {
     setFocusedBlockId(block.id);
@@ -65,6 +65,7 @@ export function TextBlock({
   const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
     if (composingRef.current) return;
     setFocusedBlockId(null);
+    setSelectedId(null, null);
     const content = event.currentTarget.innerText.replace(/\n$/, "");
     commitText(content);
   };

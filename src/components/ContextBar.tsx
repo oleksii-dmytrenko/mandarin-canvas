@@ -67,18 +67,12 @@ export function ContextBar() {
         <>
           <label>
             Font
-            <select
+            <Segmented
               value={visibleTextStyle.fontFamily}
-              onChange={(event) => {
-                updateTextStyle({ fontFamily: event.target.value });
-              }}
-            >
-              {fonts.map((font) => (
-                <option key={font.label} value={font.value}>
-                  {font.label}
-                </option>
-              ))}
-            </select>
+              options={fonts.map((font) => [font.value, font.label])}
+              preserveFocus
+              onChange={(fontFamily) => updateTextStyle({ fontFamily })}
+            />
           </label>
           <label>
             Size
@@ -107,18 +101,12 @@ export function ContextBar() {
         <>
           <label>
             Font
-            <select
+            <Segmented
               value={selectedBlock.fontFamily}
-              onChange={(event) => {
-                updateBlock(selectedBlock.id, { fontFamily: event.target.value });
-              }}
-            >
-              {fonts.map((font) => (
-                <option key={font.label} value={font.value}>
-                  {font.label}
-                </option>
-              ))}
-            </select>
+              options={fonts.map((font) => [font.value, font.label])}
+              preserveFocus
+              onChange={(fontFamily) => updateBlock(selectedBlock.id, { fontFamily })}
+            />
           </label>
           <label>
             Size
