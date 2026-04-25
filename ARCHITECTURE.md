@@ -13,4 +13,3 @@ Layer-based: `components/`, `hooks/`, `stores/`, `types/`, `utils/`.
 ## State
 
 Zustand store persists pages to localStorage. History (undo/redo) kept separate, not persisted.
-
