@@ -32,6 +32,11 @@ button {
   grid-template-columns: 236px 1fr;
   grid-template-rows: 56px 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 160ms ease;
+}
+
+.app-shell.page-list-minimized {
+  grid-template-columns: 82px 1fr;
 }
 
 .topbar {
@@ -145,8 +150,33 @@ button {
   border-right: 1px solid #dfe2e5;
   grid-row: 2;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
   padding: 14px;
+  position: relative;
+}
+
+.page-list-header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.page-list-toggle {
+  background: #ffffff;
+  border: 1px solid #dfe2e5;
+  border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(29, 29, 31, 0.12);
+  height: 46px;
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  z-index: 5;
+}
+
+.page-list-toggle:active:not(:disabled) {
+  transform: translateY(-50%);
 }
 
 .primary-action {
@@ -163,10 +193,33 @@ button {
   width: 100%;
 }
 
+.page-list-minimized .page-list {
+  padding: 10px 8px;
+}
+
+.page-list-minimized .page-list-header {
+  display: block;
+}
+
+.page-list-minimized .primary-action {
+  height: 38px;
+  padding: 0;
+}
+
+.page-list-minimized .primary-action span {
+  display: none;
+}
+
+.page-list-minimized .page-list-toggle {
+  right: -11px;
+}
+
 .page-stack {
   display: grid;
   gap: 8px;
   margin-top: 14px;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
 }
 
 .page-card {
@@ -180,6 +233,12 @@ button {
   min-height: 62px;
   padding: 10px;
   text-align: left;
+}
+
+.page-list-minimized .page-card {
+  justify-items: center;
+  min-height: 44px;
+  padding: 8px 6px;
 }
 
 .page-card.active {
@@ -218,6 +277,19 @@ button {
   padding: 3px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.page-list-minimized .page-card-title-text {
+  flex: 0 0 auto;
+  font-size: 12px;
+  max-width: 44px;
+  padding: 0;
+  text-align: center;
+}
+
+.page-list-minimized .page-title-edit-button,
+.page-list-minimized .page-card-footer {
+  display: none;
 }
 
 .page-card-title:focus {
@@ -290,6 +362,7 @@ button {
 .workspace {
   display: grid;
   grid-template-rows: 48px 1fr;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -380,20 +453,32 @@ button {
 }
 
 .page-wrap {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 0;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 28px;
+}
+
+.paper-frame {
+  flex: 0 0 auto;
+  position: relative;
 }
 
 .paper {
   background: #fff;
   box-shadow: 0 14px 42px rgba(29, 29, 31, 0.16);
-  height: 1123px;
-  margin: 0 auto;
+  height: 794px;
+  left: 0;
+  margin: 0;
   outline: none;
   overflow: hidden;
   position: relative;
-  width: 794px;
+  top: 0;
+  transform-origin: top left;
+  width: 1123px;
 }
 
 .paper.tool-text {
@@ -645,27 +730,11 @@ rt {
   .page-wrap {
     padding: 18px;
   }
-
-  .paper {
-    transform-origin: top left;
-  }
-}
-
-@media (max-width: 700px) {
-  .paper {
-    height: 1123px;
-    transform: scale(0.62);
-    width: 794px;
-  }
-
-  .page-wrap {
-    min-height: 730px;
-  }
 }
 
 @page {
   margin: 0;
-  size: A4 portrait;
+  size: A4 landscape;
 }
 
 @media print {
@@ -681,21 +750,24 @@ rt {
 
   .app-shell,
   .workspace,
-  .page-wrap {
+  .page-wrap,
+  .paper-frame {
     display: block;
+    height: auto !important;
     margin: 0;
     min-height: auto;
     overflow: visible;
     padding: 0;
+    width: auto !important;
   }
 
   .paper {
     box-shadow: none;
-    height: 297mm;
+    height: 210mm;
     margin: 0;
     overflow: hidden;
-    transform: none;
-    width: 210mm;
+    transform: none !important;
+    width: 297mm;
   }
 
   .text-block {

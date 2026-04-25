@@ -1,12 +1,15 @@
 import {
   ArrowUpRight,
   Camera,
+  ClipboardPaste,
   CircleSlash,
   Copy,
   Download,
   Eraser,
   FilePlus2,
   MousePointer2,
+  PanelLeftClose,
+  PanelLeftOpen,
   PenLine,
   Pencil,
   Printer,
@@ -25,6 +28,16 @@ import { pinyinToZhuyin } from "pinyin-zhuyin";
 type Tool = "select" | "text" | "pen" | "rect" | "arrow";
 type AnnotationMode = "plain" | "pinyin" | "zhuyin";
 type DrawingKind = "pen" | "rect" | "arrow";
+
+type ToolSettings = {
+  activeTool: Tool;
+  color: string;
+  fontFamily: string;
+  fontSize: number;
+  annotation: AnnotationMode;
+  penStrokeWidth: number;
+  shapeStrokeWidth: number;
+};
 
 type TextBlock = {
   id: string;
@@ -72,13 +85,14 @@ type Page = {
 type StoredState = {
   activePageId: string;
   pages: Page[];
+  toolSettings: ToolSettings;
 };
 
 const STORAGE_KEY = "mandarin-canvas:v1";
 const STATE_FILE_APP = "mandarin-canvas";
 const STATE_FILE_VERSION = 1;
-const PAGE_WIDTH = 794;
-const PAGE_HEIGHT = 1123;
+const PAGE_WIDTH = 1123;
+const PAGE_HEIGHT = 794;
 const HISTORY_LIMIT = 10;
 const DEFAULT_TEXT_BLOCK_WIDTH = 260;
 const MIN_TEXT_BLOCK_WIDTH = 44;
@@ -94,6 +108,16 @@ const fonts = [
 ];
 
 const colorSwatches = ["#1d1d1f", "#d23f31", "#1f7a4d", "#235cc7", "#8a4fd3", "#d78a00"];
+
+const defaultToolSettings = (): ToolSettings => ({
+  activeTool: "text",
+  color: "#1d1d1f",
+  fontFamily: fonts[0].value,
+  fontSize: 28,
+  annotation: "plain",
+  penStrokeWidth: 3,
+  shapeStrokeWidth: 2.5,
+});
 
 const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -112,7 +136,7 @@ const createPage = (index = 1): Page => ({
 
 const initialState = (): StoredState => {
   const first = createPage();
-  return { activePageId: first.id, pages: [first] };
+  return { activePageId: first.id, pages: [first], toolSettings: defaultToolSettings() };
 };
 
 const loadState = (): StoredState => {
@@ -200,6 +224,23 @@ const isStoredState = (value: unknown): value is StoredState => {
   );
 };
 
+const isToolSettings = (value: unknown): value is ToolSettings => {
+  if (!isRecord(value)) return false;
+  return (
+    (value.activeTool === "select" ||
+      value.activeTool === "text" ||
+      value.activeTool === "pen" ||
+      value.activeTool === "rect" ||
+      value.activeTool === "arrow") &&
+    typeof value.color === "string" &&
+    typeof value.fontFamily === "string" &&
+    typeof value.fontSize === "number" &&
+    (value.annotation === "plain" || value.annotation === "pinyin" || value.annotation === "zhuyin") &&
+    typeof value.penStrokeWidth === "number" &&
+    typeof value.shapeStrokeWidth === "number"
+  );
+};
+
 const parseImportedState = (value: unknown): StoredState | null => {
   if (isStoredState(value)) return normalizeState(value);
   if (isRecord(value) && value.app === STATE_FILE_APP && isStoredState(value.state)) return normalizeState(value.state);
@@ -221,6 +262,7 @@ const cloneImportedState = (importedState: StoredState): StoredState => {
   return {
     activePageId: pageIdMap.get(importedState.activePageId) ?? pages[0].id,
     pages,
+    toolSettings: importedState.toolSettings,
   };
 };
 
@@ -229,11 +271,13 @@ const appendImportedState = (currentState: StoredState, importedState: StoredSta
   return {
     activePageId: clonedState.activePageId,
     pages: [...clonedState.pages, ...currentState.pages],
+    toolSettings: clonedState.toolSettings,
   };
 };
 
 const normalizeState = (storedState: StoredState): StoredState => ({
   ...storedState,
+  toolSettings: isToolSettings(storedState.toolSettings) ? storedState.toolSettings : defaultToolSettings(),
   pages: storedState.pages.map((page) => ({
     ...page,
     images: page.images ?? [],
@@ -326,15 +370,15 @@ function RubyText({ text, mode }: { text: string; mode: AnnotationMode }) {
 
 function App() {
   const [state, setState] = useState<StoredState>(() => loadState());
-  const [tool, setTool] = useState<Tool>("text");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<"text" | "drawing" | "image" | null>(null);
-  const [currentColor, setCurrentColor] = useState("#1d1d1f");
-  const [defaultAnnotation, setDefaultAnnotation] = useState<AnnotationMode>("plain");
   const [draftDrawing, setDraftDrawing] = useState<Drawing | null>(null);
   const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isPageListMinimized, setIsPageListMinimized] = useState(false);
+  const [pageScale, setPageScale] = useState(1);
+  const pageWrapRef = useRef<HTMLDivElement | null>(null);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<{ past: StoredState[]; future: StoredState[] }>({ past: [], future: [] });
@@ -403,6 +447,33 @@ function App() {
     () => state.pages.find((page) => page.id === state.activePageId) ?? state.pages[0],
     [state],
   );
+  const toolSettings = state.toolSettings;
+  const tool = toolSettings.activeTool;
+  const currentColor = toolSettings.color;
+
+  useEffect(() => {
+    const wrapper = pageWrapRef.current;
+    if (!wrapper) return;
+
+    const updateScale = () => {
+      const styles = window.getComputedStyle(wrapper);
+      const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+      const verticalPadding = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+      const availableWidth = Math.max(1, wrapper.clientWidth - horizontalPadding);
+      const availableHeight = Math.max(1, wrapper.clientHeight - verticalPadding);
+      setPageScale(Math.min(availableWidth / PAGE_WIDTH, availableHeight / PAGE_HEIGHT));
+    };
+
+    updateScale();
+    const resizeObserver = new ResizeObserver(updateScale);
+    resizeObserver.observe(wrapper);
+    window.addEventListener("resize", updateScale);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateScale);
+    };
+  }, []);
 
   const selectedBlock = activePage.blocks.find((block) => block.id === selectedId);
   const selectedDrawing = activePage.drawings.find((drawing) => drawing.id === selectedId);
@@ -433,6 +504,17 @@ function App() {
       return next;
     });
   };
+
+  const updateToolSettings = (patch: Partial<ToolSettings>) => {
+    setState((previous) => ({
+      ...previous,
+      toolSettings: { ...previous.toolSettings, ...patch },
+    }));
+  };
+
+  const setTool = (activeTool: Tool) => updateToolSettings({ activeTool });
+
+  const setCurrentColor = (color: string) => updateToolSettings({ color });
 
   const updateActivePage = (updater: (page: Page) => Page, recordHistory = true) => {
     updateStoredState(
@@ -491,10 +573,10 @@ function App() {
       y,
       width: DEFAULT_TEXT_BLOCK_WIDTH,
       content: "",
-      fontFamily: fonts[0].value,
-      fontSize: 28,
+      fontFamily: toolSettings.fontFamily,
+      fontSize: toolSettings.fontSize,
       color: currentColor,
-      annotation: defaultAnnotation,
+      annotation: toolSettings.annotation,
     };
     updateActivePage((page) => ({ ...page, blocks: [...page.blocks, block] }));
     setSelectedId(block.id);
@@ -525,7 +607,7 @@ function App() {
       id: createId(),
       kind: tool,
       color: currentColor,
-      strokeWidth: tool === "pen" ? 3 : 2.5,
+      strokeWidth: tool === "pen" ? toolSettings.penStrokeWidth : toolSettings.shapeStrokeWidth,
       points: tool === "pen" ? [point] : [],
       x: point.x,
       y: point.y,
@@ -719,14 +801,8 @@ function App() {
       reader.readAsDataURL(file);
     });
 
-  const handlePaste = async (event: React.ClipboardEvent<HTMLDivElement>) => {
-    const files = Array.from(event.clipboardData.items)
-      .filter((item) => item.type.startsWith("image/"))
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => Boolean(file));
-
+  const addImageFiles = async (files: File[]) => {
     if (!files.length) return;
-    event.preventDefault();
     commitFocusedText();
 
     try {
@@ -739,6 +815,47 @@ function App() {
       setFocusedBlockId(null);
     } catch {
       window.alert("Could not paste that image.");
+    }
+  };
+
+  const handlePaste = async (event: React.ClipboardEvent<HTMLDivElement>) => {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+
+    if (!files.length) return;
+    event.preventDefault();
+    await addImageFiles(files);
+  };
+
+  const pasteImagesFromClipboard = async () => {
+    if (!navigator.clipboard?.read) {
+      window.alert("This browser does not allow image reads from the clipboard button. Use Cmd+V or Ctrl+V on the page.");
+      return;
+    }
+
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      const imageFiles = await Promise.all(
+        clipboardItems.flatMap((item) =>
+          item.types
+            .filter((type) => type.startsWith("image/"))
+            .map(async (type) => {
+              const blob = await item.getType(type);
+              return new File([blob], "clipboard-image", { type });
+            }),
+        ),
+      );
+
+      if (!imageFiles.length) {
+        window.alert("No image found on the clipboard.");
+        return;
+      }
+
+      await addImageFiles(imageFiles);
+    } catch {
+      window.alert("Could not read an image from the clipboard. Use Cmd+V or Ctrl+V on the page.");
     }
   };
 
@@ -792,10 +909,9 @@ function App() {
   const createNewPage = () => {
     commitFocusedText();
     const page = createPage(state.pages.length + 1);
-    updateStoredState((previous) => ({ activePageId: page.id, pages: [page, ...previous.pages] }));
+    updateStoredState((previous) => ({ ...previous, activePageId: page.id, pages: [page, ...previous.pages] }));
     setSelectedId(null);
     setSelectedKind(null);
-    setTool("text");
   };
 
   const duplicatePage = () => {
@@ -809,7 +925,7 @@ function App() {
       drawings: activePage.drawings.map((drawing) => ({ ...drawing, id: createId() })),
       images: activePage.images.map((image) => ({ ...image, id: createId() })),
     };
-    updateStoredState((previous) => ({ activePageId: copy.id, pages: [copy, ...previous.pages] }));
+    updateStoredState((previous) => ({ ...previous, activePageId: copy.id, pages: [copy, ...previous.pages] }));
   };
 
   const cleanPage = () => {
@@ -830,7 +946,7 @@ function App() {
     commitFocusedText();
     if (state.pages.length === 1) {
       const page = createPage();
-      updateStoredState(() => ({ activePageId: page.id, pages: [page] }));
+      updateStoredState((previous) => ({ ...previous, activePageId: page.id, pages: [page] }));
       setSelectedId(null);
       setSelectedKind(null);
       setFocusedBlockId(null);
@@ -838,7 +954,7 @@ function App() {
     }
     updateStoredState((previous) => {
       const pages = previous.pages.filter((page) => page.id !== previous.activePageId);
-      return { activePageId: pages[0].id, pages };
+      return { ...previous, activePageId: pages[0].id, pages };
     });
     setSelectedId(null);
     setSelectedKind(null);
@@ -944,12 +1060,12 @@ function App() {
 
   const setBlockAnnotation = (blockId: string, annotation: AnnotationMode) => {
     commitBlockText(blockId);
-    setDefaultAnnotation(annotation);
+    updateToolSettings({ annotation });
     updateBlock(blockId, { annotation });
   };
 
   return (
-    <main className="app-shell" onPaste={handlePaste}>
+    <main className={`app-shell ${isPageListMinimized ? "page-list-minimized" : ""}`} onPaste={handlePaste}>
       <header className="topbar" onPointerDownCapture={commitFocusedText}>
         <div className="brand">
           <span className="brand-mark">文</span>
@@ -974,6 +1090,9 @@ function App() {
           </IconButton>
           <IconButton active={tool === "arrow"} label="Arrow" onClick={() => setTool("arrow")}>
             <ArrowUpRight size={18} />
+          </IconButton>
+          <IconButton label="Paste from clipboard" onClick={() => void pasteImagesFromClipboard()}>
+            <ClipboardPaste size={18} />
           </IconButton>
         </div>
 
@@ -1031,13 +1150,27 @@ function App() {
       </header>
 
       <aside className="page-list" onPointerDownCapture={commitFocusedText}>
-        <button className="primary-action" onClick={createNewPage}>
-          <FilePlus2 size={17} />
-          New page
-        </button>
+        <div className="page-list-header">
+          <button className="primary-action" onClick={createNewPage} title={isPageListMinimized ? "New page" : undefined}>
+            <FilePlus2 size={17} />
+            <span>New page</span>
+          </button>
+          <IconButton
+            className="page-list-toggle"
+            label={isPageListMinimized ? "Expand page list" : "Minimize page list"}
+            onClick={() => {
+              commitFocusedText();
+              setEditingPageId(null);
+              setIsPageListMinimized((value) => !value);
+            }}
+          >
+            {isPageListMinimized ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+          </IconButton>
+        </div>
         <div className="page-stack">
           {state.pages.map((page) => {
             const isActive = page.id === activePage.id;
+            const shortTitle = page.title.trim().slice(0, 4) || "Page";
 
             return (
               <div
@@ -1054,7 +1187,7 @@ function App() {
                 tabIndex={0}
               >
                 <div className="page-card-title-row">
-                  {editingPageId === page.id ? (
+                  {editingPageId === page.id && !isPageListMinimized ? (
                     <input
                       aria-label="Page title"
                       className="page-card-title"
@@ -1078,7 +1211,7 @@ function App() {
                     />
                   ) : (
                     <>
-                      <span className="page-card-title-text">{page.title}</span>
+                      <span className="page-card-title-text">{isPageListMinimized ? shortTitle : page.title}</span>
                       <button
                         aria-label={`Rename ${page.title}`}
                         className="page-title-edit-button"
@@ -1097,7 +1230,7 @@ function App() {
                 </div>
                 <div className="page-card-footer">
                   <small>{new Date(page.updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small>
-                  {isActive && (
+                  {isActive && !isPageListMinimized && (
                     <div className="page-card-actions" aria-label="Page actions">
                       <IconButton
                         label="Duplicate page"
@@ -1145,7 +1278,9 @@ function App() {
                 <select
                   value={selectedBlock.fontFamily}
                   onChange={(event) => {
-                    updateBlock(selectedBlock.id, { fontFamily: event.target.value });
+                    const fontFamily = event.target.value;
+                    updateToolSettings({ fontFamily });
+                    updateBlock(selectedBlock.id, { fontFamily });
                   }}
                 >
                   {fonts.map((font) => (
@@ -1162,7 +1297,9 @@ function App() {
                   type="number"
                   value={selectedBlock.fontSize}
                   onChange={(event) => {
-                    updateBlock(selectedBlock.id, { fontSize: Number(event.target.value) });
+                    const fontSize = Number(event.target.value);
+                    updateToolSettings({ fontSize });
+                    updateBlock(selectedBlock.id, { fontSize });
                   }}
                 />
               </label>
@@ -1187,7 +1324,36 @@ function App() {
                   max={12}
                   type="number"
                   value={selectedDrawing.strokeWidth}
-                  onChange={(event) => updateDrawing(selectedDrawing.id, { strokeWidth: Number(event.target.value) })}
+                  onChange={(event) => {
+                    const strokeWidth = Number(event.target.value);
+                    updateToolSettings(
+                      selectedDrawing.kind === "pen"
+                        ? { penStrokeWidth: strokeWidth }
+                        : { shapeStrokeWidth: strokeWidth },
+                    );
+                    updateDrawing(selectedDrawing.id, { strokeWidth });
+                  }}
+                />
+              </label>
+            </>
+          ) : selectedKind === "image" && selectedImage ? (
+            <>
+              <span className="context-label">Image</span>
+              <label>
+                Width
+                <input
+                  aria-label="Image width"
+                  min={MIN_IMAGE_SIZE}
+                  max={PAGE_WIDTH}
+                  type="number"
+                  value={Math.round(selectedImage.width)}
+                  onChange={(event) => {
+                    const nextWidth = Math.max(MIN_IMAGE_SIZE, Math.min(PAGE_WIDTH - selectedImage.x, Number(event.target.value)));
+                    updateImage(selectedImage.id, {
+                      width: nextWidth,
+                      height: nextWidth * (selectedImage.height / selectedImage.width),
+                    });
+                  }}
                 />
               </label>
             </>
@@ -1197,16 +1363,24 @@ function App() {
 
         </div>
 
-        <div className="page-wrap">
+        <div className="page-wrap" ref={pageWrapRef}>
           <div
-            className={`paper tool-${tool}`}
-            ref={pageRef}
-            onPointerDown={handlePagePointerDown}
-            onPointerMove={handlePagePointerMove}
-            onPointerUp={handlePagePointerUp}
-            onPointerCancel={handlePagePointerUp}
-            tabIndex={0}
+            className="paper-frame"
+            style={{
+              height: PAGE_HEIGHT * pageScale,
+              width: PAGE_WIDTH * pageScale,
+            }}
           >
+            <div
+              className={`paper tool-${tool}`}
+              ref={pageRef}
+              onPointerDown={handlePagePointerDown}
+              onPointerMove={handlePagePointerMove}
+              onPointerUp={handlePagePointerUp}
+              onPointerCancel={handlePagePointerUp}
+              style={{ transform: `scale(${pageScale})` }}
+              tabIndex={0}
+            >
             <svg className="drawing-layer" viewBox={`0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}`} aria-hidden="true">
               <defs>
                 <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
@@ -1221,8 +1395,13 @@ function App() {
                   onSelect={(event) => {
                     setSelectedId(drawing.id);
                     setSelectedKind("drawing");
-                    setTool("select");
-                    setCurrentColor(drawing.color);
+                    updateToolSettings({
+                      activeTool: "select",
+                      color: drawing.color,
+                      ...(drawing.kind === "pen"
+                        ? { penStrokeWidth: drawing.strokeWidth }
+                        : { shapeStrokeWidth: drawing.strokeWidth }),
+                    });
                     dragRef.current = {
                       kind: "drawing",
                       id: drawing.id,
@@ -1385,7 +1564,12 @@ function App() {
                   event.stopPropagation();
                   setSelectedId(block.id);
                   setSelectedKind("text");
-                  setCurrentColor(block.color);
+                  updateToolSettings({
+                    color: block.color,
+                    fontFamily: block.fontFamily,
+                    fontSize: block.fontSize,
+                    annotation: block.annotation,
+                  });
                   if (tool === "select") {
                     event.preventDefault();
                     dragRef.current = {
@@ -1511,6 +1695,7 @@ function App() {
                 )}
               </article>
             ))}
+            </div>
           </div>
         </div>
       </section>
@@ -1521,12 +1706,14 @@ function App() {
 function IconButton({
   active = false,
   children,
+  className = "",
   disabled = false,
   label,
   onClick,
 }: {
   active?: boolean;
   children: React.ReactNode;
+  className?: string;
   disabled?: boolean;
   label: string;
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -1534,7 +1721,7 @@ function IconButton({
   return (
     <button
       aria-label={label}
-      className={`icon-button ${active ? "active" : ""}`}
+      className={`icon-button ${active ? "active" : ""} ${className}`.trim()}
       disabled={disabled}
       onClick={onClick}
       title={label}
