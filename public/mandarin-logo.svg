@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Mandarin Canvas logo</title>
+  <rect x="8" y="8" width="48" height="48" rx="7" fill="#FFFEFA" />
+  <rect x="8.5" y="8.5" width="47" height="47" rx="6.5" fill="none" stroke="#C3CBBF" />
+  <path
+    fill="#DF6B4A"
+    fill-rule="evenodd"
+    d="M14 14h36v36H14zm9 9v20h7V30h11v13h7V23z"
+    clip-rule="evenodd"
+  />
+</svg>

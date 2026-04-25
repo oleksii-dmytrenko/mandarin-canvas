@@ -1,0 +1,310 @@
+import { Trash2 } from "lucide-react";
+import type { PointerEvent, RefObject } from "react";
+import type { Drawing, ImageObject as ImageObjectType, TextBlock as TextBlockType } from "../types";
+import { useCanvasStore } from "../stores/canvasStore";
+import { PAGE_WIDTH, PAGE_HEIGHT } from "../utils/constants";
+import { createId } from "../utils/id";
+import { selectedDrawingDeletePosition } from "../utils/drawing";
+import { DrawingShape } from "./DrawingShape";
+import { ImageObject as ImageObjectComponent } from "./ImageObject";
+import { TextBlock } from "./TextBlock";
+import type { DragState } from "../hooks/useDrag";
+
+interface PaperProps {
+  pageRef: RefObject<HTMLDivElement | null>;
+  dragRef: RefObject<DragState>;
+  draftTextRef: RefObject<Record<string, string>>;
+  composingRef: RefObject<boolean>;
+  drawRef: RefObject<{ startX: number; startY: number; drawing: Drawing } | null>;
+  onTrackHistory: (snapshot: ReturnType<typeof useCanvasStore.getState>) => void;
+  onCommitFocusedText: () => void;
+}
+
+export function Paper({
+  pageRef,
+  dragRef,
+  draftTextRef,
+  composingRef,
+  drawRef,
+  onTrackHistory,
+  onCommitFocusedText,
+}: PaperProps) {
+  const {
+    pages,
+    activePageId,
+    tool,
+    selectedId,
+    setSelectedId,
+    setTool,
+    setCurrentColor,
+    draftDrawing,
+    setDraftDrawing,
+    addBlock,
+    addDrawing,
+    deleteDrawing,
+    addImages,
+    updateBlock,
+    updateDrawing,
+    updateImage,
+  } = useCanvasStore();
+
+  const activePage = pages.find((p) => p.id === activePageId);
+  if (!activePage) return null;
+
+  const pagePoint = (event: PointerEvent | React.PointerEvent) => {
+    const rect = pageRef.current!.getBoundingClientRect();
+    const scaleX = PAGE_WIDTH / rect.width;
+    const scaleY = PAGE_HEIGHT / rect.height;
+    return {
+      x: Math.max(0, Math.min(PAGE_WIDTH, (event.clientX - rect.left) * scaleX)),
+      y: Math.max(0, Math.min(PAGE_HEIGHT, (event.clientY - rect.top) * scaleY)),
+    };
+  };
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("[data-editor-object]")) return;
+    onCommitFocusedText();
+    const point = pagePoint(event);
+
+    if (tool === "text") {
+      addBlock(point.x, point.y);
+      window.setTimeout(() => document.querySelector<HTMLElement>(`[data-block-id="${activePage.blocks[activePage.blocks.length - 1]?.id}"]`)?.focus(), 30);
+      return;
+    }
+
+    if (tool === "select") {
+      setSelectedId(null, null);
+      return;
+    }
+
+    const drawing: Drawing = {
+      id: createId(),
+      kind: tool,
+      color: useCanvasStore.getState().currentColor,
+      strokeWidth: tool === "pen" ? 3 : 2.5,
+      points: tool === "pen" ? [point] : [],
+      x: point.x,
+      y: point.y,
+      width: 0,
+      height: 0,
+    };
+    drawRef.current = { startX: point.x, startY: point.y, drawing };
+    setDraftDrawing(drawing);
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current) {
+      // Drag is handled by parent via useDrag hook
+      return;
+    }
+
+    if (!drawRef.current) return;
+    const point = pagePoint(event);
+    const { startX, startY, drawing } = drawRef.current;
+    const next: Drawing =
+      drawing.kind === "pen"
+        ? { ...drawing, points: [...drawing.points, point] }
+        : {
+            ...drawing,
+            x: Math.min(startX, point.x),
+            y: Math.min(startY, point.y),
+            width: Math.abs(point.x - startX),
+            height: Math.abs(point.y - startY),
+            points: [{ x: startX, y: startY }, point],
+          };
+    drawRef.current.drawing = next;
+    setDraftDrawing(next);
+  };
+
+  const handlePointerUp = () => {
+    if (drawRef.current) {
+      const drawing = drawRef.current.drawing;
+      const isMeaningful =
+        drawing.kind === "pen" ? drawing.points.length > 2 : (drawing.width ?? 0) > 4 || (drawing.height ?? 0) > 4;
+      if (isMeaningful) {
+        addDrawing(drawing);
+      }
+      drawRef.current = null;
+      setDraftDrawing(null);
+    }
+  };
+
+  const handlePaste = async (event: React.ClipboardEvent<HTMLDivElement>) => {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+
+    if (!files.length) return;
+    event.preventDefault();
+    onCommitFocusedText();
+
+    try {
+      const { readImageFile } = await import("../utils/export");
+      const images = await Promise.all(files.map(readImageFile));
+      addImages(images);
+    } catch {
+      window.alert("Could not paste that image.");
+    }
+  };
+
+  const startTextDrag = (id: string, event: React.PointerEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragRef.current = {
+      kind: "text",
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      baseX: activePage.blocks.find((b: TextBlockType) => b.id === id)?.x ?? 0,
+      baseY: activePage.blocks.find((b: TextBlockType) => b.id === id)?.y ?? 0,
+      baseState: { activePageId, pages },
+      historyTracked: false,
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
+  const startTextResize = (id: string, edge: "left" | "right", event: React.PointerEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const block = activePage.blocks.find((b: TextBlockType) => b.id === id);
+    dragRef.current = {
+      kind: "text-resize",
+      id,
+      edge,
+      startX: event.clientX,
+      baseX: block?.x ?? 0,
+      baseWidth: block?.width ?? 0,
+      baseState: { activePageId, pages },
+      historyTracked: false,
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
+  const startImageDrag = (id: string, event: React.PointerEvent, baseX: number, baseY: number) => {
+    const image = activePage.images.find((i: ImageObjectType) => i.id === id);
+    dragRef.current = {
+      kind: "image",
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      baseX,
+      baseY,
+      baseWidth: image?.width ?? 0,
+      baseHeight: image?.height ?? 0,
+      baseState: { activePageId, pages },
+      historyTracked: false,
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
+  const startImageResize = (id: string, event: React.PointerEvent, baseX: number, baseY: number, baseWidth: number, baseHeight: number) => {
+    dragRef.current = {
+      kind: "image-resize",
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      baseX,
+      baseY,
+      baseWidth,
+      baseHeight,
+      baseState: { activePageId, pages },
+      historyTracked: false,
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
+  return (
+    <div
+      className={`paper tool-${tool}`}
+      ref={pageRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPaste={handlePaste}
+      tabIndex={0}
+    >
+      <svg className="drawing-layer" viewBox={`0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}`} aria-hidden="true">
+        <defs>
+          <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L0,6 L9,3 z" fill="context-stroke" />
+          </marker>
+        </defs>
+        {[...activePage.drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => (
+          <DrawingShape
+            drawing={drawing}
+            key={drawing.id}
+            selected={selectedId === drawing.id}
+            onSelect={(event) => {
+              setSelectedId(drawing.id, "drawing");
+              setTool("select");
+              setCurrentColor(drawing.color);
+              dragRef.current = {
+                kind: "drawing",
+                id: drawing.id,
+                startX: event.clientX,
+                startY: event.clientY,
+                baseDrawing: drawing,
+                baseState: { activePageId, pages },
+                historyTracked: false,
+              };
+              (event.currentTarget as SVGElement).setPointerCapture(event.pointerId);
+            }}
+          />
+        ))}
+      </svg>
+
+      {activePage.drawings.map((drawing: Drawing) => {
+        if (selectedId !== drawing.id) return null;
+        const position = selectedDrawingDeletePosition(drawing);
+
+        return (
+          <button
+            aria-label="Delete drawing"
+            className="object-delete-button drawing-delete-button"
+            data-editor-object
+            data-export-hidden="true"
+            key={`delete-${drawing.id}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              deleteDrawing(drawing.id);
+            }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            style={{ left: position.left, top: position.top }}
+            type="button"
+          >
+            <Trash2 size={12} />
+          </button>
+        );
+      })}
+
+      {activePage.images.map((image: ImageObjectType) => (
+        <ImageObjectComponent
+          key={image.id}
+          image={image}
+          isSelected={selectedId === image.id}
+          onStartDrag={startImageDrag}
+          onStartResize={startImageResize}
+        />
+      ))}
+
+      {activePage.blocks.map((block: TextBlockType) => (
+        <TextBlock
+          key={block.id}
+          block={block}
+          isSelected={selectedId === block.id}
+          onStartDrag={startTextDrag}
+          onStartResize={startTextResize}
+          draftTextRef={draftTextRef}
+          composingRef={composingRef}
+        />
+      ))}
+    </div>
+  );
+}
