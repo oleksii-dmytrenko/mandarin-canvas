@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { AnnotationMode, Drawing, DrawingKind, ImageObject, Page, StoredState, TextBlock, Tool } from "../types";
-import { DEFAULT_TEXT_BLOCK_WIDTH, PAGE_HEIGHT, PAGE_WIDTH, STORAGE_KEY } from "../utils/constants";
+import type { AnnotationMode, ColorTool, Drawing, DrawingKind, ImageObject, Page, StoredState, TextBlock, Tool } from "../types";
+import { DEFAULT_TEXT_BLOCK_WIDTH, PAGE_HEIGHT, PAGE_WIDTH, STORAGE_KEY, defaultToolColors } from "../utils/constants";
 import { createId } from "../utils/id";
 import { isStoredState, normalizeState } from "../utils/validation";
 
@@ -35,6 +35,7 @@ interface CanvasState extends StoredState {
   selectedId: string | null;
   selectedKind: "text" | "drawing" | "image" | null;
   currentColor: string;
+  toolColors: Record<ColorTool, string>;
   defaultAnnotation: AnnotationMode;
   draftDrawing: Drawing | null;
   focusedBlockId: string | null;
@@ -57,10 +58,10 @@ interface CanvasActions {
   // Page actions
   setActivePage: (pageId: string) => void;
   addPage: () => void;
-  deletePage: () => void;
-  duplicatePage: () => void;
+  deletePage: (pageId?: string) => void;
+  duplicatePage: (pageId?: string) => void;
   renamePage: (pageId: string, title: string) => void;
-  cleanPage: () => void;
+  cleanPage: (pageId?: string) => void;
 
   // Text block actions
   addBlock: (x: number, y: number) => void;
@@ -82,6 +83,17 @@ interface CanvasActions {
   setStateDirectly: (state: StoredState) => void;
 }
 
+const colorToolForTool = (tool: Tool): ColorTool | null => (tool === "select" ? null : tool);
+
+const colorToolForSelection = (state: CanvasState): ColorTool | null => {
+  if (state.selectedKind === "text") return "text";
+  if (state.selectedKind !== "drawing" || !state.selectedId) return colorToolForTool(state.tool);
+
+  const activePage = state.pages.find((page) => page.id === state.activePageId);
+  const selectedDrawing = activePage?.drawings.find((drawing) => drawing.id === state.selectedId);
+  return selectedDrawing?.kind ?? colorToolForTool(state.tool);
+};
+
 export const useCanvasStore = create<CanvasState & CanvasActions>()(
   persist(
     (set, get) => ({
@@ -90,18 +102,32 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       tool: "text",
       selectedId: null,
       selectedKind: null,
-      currentColor: "#1d1d1f",
-      defaultAnnotation: "plain",
+      currentColor: defaultToolColors.text,
+      toolColors: defaultToolColors,
+      defaultAnnotation: "pinyin",
       draftDrawing: null,
       focusedBlockId: null,
       editingPageId: null,
       isExporting: false,
 
       // Tool & selection
-      setTool: (tool) => set({ tool }),
+      setTool: (tool) => {
+        const colorTool = colorToolForTool(tool);
+        set((state) => ({
+          tool,
+          ...(colorTool && { currentColor: state.toolColors[colorTool] }),
+        }));
+      },
       setSelectedId: (id, kind) => set({ selectedId: id, ...(kind !== undefined && { selectedKind: kind }) }),
       setSelectedKind: (kind) => set({ selectedKind: kind }),
-      setCurrentColor: (color) => set({ currentColor: color }),
+      setCurrentColor: (color) =>
+        set((state) => {
+          const colorTool = colorToolForSelection(state);
+          return {
+            currentColor: color,
+            ...(colorTool && { toolColors: { ...state.toolColors, [colorTool]: color } }),
+          };
+        }),
       setDefaultAnnotation: (mode) => set({ defaultAnnotation: mode }),
       setDraftDrawing: (drawing) => set({ draftDrawing: drawing }),
       setFocusedBlockId: (id) => set({ focusedBlockId: id }),
@@ -119,30 +145,36 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         set({ activePageId: page.id, pages: [page, ...pages] });
       },
 
-      deletePage: () => {
+      deletePage: (pageId) => {
         const { pages, activePageId } = get();
+        const targetPageId = pageId ?? activePageId;
         if (pages.length === 1) {
           const page = createPage();
           set({ activePageId: page.id, pages: [page] });
           return;
         }
-        const remaining = pages.filter((p) => p.id !== activePageId);
-        set({ activePageId: remaining[0].id, pages: remaining, selectedId: null, selectedKind: null });
+        const remaining = pages.filter((p) => p.id !== targetPageId);
+        set({
+          activePageId: targetPageId === activePageId ? remaining[0].id : activePageId,
+          pages: remaining,
+          selectedId: null,
+          selectedKind: null,
+        });
       },
 
-      duplicatePage: () => {
+      duplicatePage: (pageId) => {
         const { pages, activePageId } = get();
-        const activePage = pages.find((p) => p.id === activePageId);
-        if (!activePage) return;
+        const targetPage = pages.find((p) => p.id === (pageId ?? activePageId));
+        if (!targetPage) return;
 
         const copy: Page = {
-          ...activePage,
+          ...targetPage,
           id: createId(),
-          title: `${activePage.title} copy`,
+          title: `${targetPage.title} copy`,
           updatedAt: Date.now(),
-          blocks: activePage.blocks.map((block) => ({ ...block, id: createId() })),
-          drawings: activePage.drawings.map((drawing) => ({ ...drawing, id: createId() })),
-          images: activePage.images.map((image) => ({ ...image, id: createId() })),
+          blocks: targetPage.blocks.map((block) => ({ ...block, id: createId() })),
+          drawings: targetPage.drawings.map((drawing) => ({ ...drawing, id: createId() })),
+          images: targetPage.images.map((image) => ({ ...image, id: createId() })),
         };
         set({ activePageId: copy.id, pages: [copy, ...pages] });
       },
@@ -157,21 +189,20 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         });
       },
 
-      cleanPage: () => {
+      cleanPage: (pageId) => {
         const { pages, activePageId } = get();
+        const targetPageId = pageId ?? activePageId;
         set({
           pages: pages.map((page) =>
-            page.id === activePageId ? { ...page, blocks: [], drawings: [], images: [] } : page,
+            page.id === targetPageId ? { ...page, blocks: [], drawings: [], images: [] } : page,
           ),
-          selectedId: null,
-          selectedKind: null,
-          focusedBlockId: null,
+          ...(targetPageId === activePageId && { selectedId: null, selectedKind: null, focusedBlockId: null }),
         });
       },
 
       // Text block actions
       addBlock: (x, y) => {
-        const { pages, activePageId, currentColor, defaultAnnotation } = get();
+        const { pages, activePageId, toolColors, defaultAnnotation } = get();
         const block: TextBlock = {
           id: createId(),
           x,
@@ -180,7 +211,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           content: "",
           fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
           fontSize: 28,
-          color: currentColor,
+          color: toolColors.text,
           annotation: defaultAnnotation,
         };
         set({

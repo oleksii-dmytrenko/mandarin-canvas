@@ -5,17 +5,19 @@ import { useCanvasStore } from "../stores/canvasStore";
 interface ImageObjectProps {
   image: ImageObjectType;
   isSelected: boolean;
+  isInteractive: boolean;
   onStartDrag: (id: string, event: React.PointerEvent, baseX: number, baseY: number) => void;
   onStartResize: (id: string, event: React.PointerEvent, baseX: number, baseY: number, baseWidth: number, baseHeight: number) => void;
 }
 
-export function ImageObject({ image, isSelected, onStartDrag, onStartResize }: ImageObjectProps) {
+export function ImageObject({ image, isSelected, isInteractive, onStartDrag, onStartResize }: ImageObjectProps) {
   const { deleteImage, setSelectedId, setTool } = useCanvasStore();
+  const isActiveSelection = isSelected && isInteractive;
 
   return (
     <figure
-      className={`image-object ${isSelected ? "selected" : ""}`}
-      data-editor-object
+      className={`image-object ${isActiveSelection ? "selected" : ""} ${isInteractive ? "" : "inactive-tool"}`}
+      data-editor-object={isInteractive ? true : undefined}
       style={{
         left: image.x,
         top: image.y,
@@ -23,6 +25,7 @@ export function ImageObject({ image, isSelected, onStartDrag, onStartResize }: I
         height: image.height,
       }}
       onPointerDown={(event) => {
+        if (!isInteractive) return;
         event.preventDefault();
         event.stopPropagation();
         setSelectedId(image.id, "image");
@@ -31,7 +34,7 @@ export function ImageObject({ image, isSelected, onStartDrag, onStartResize }: I
       }}
     >
       <img alt={image.alt} draggable={false} src={image.src} />
-      {isSelected && (
+      {isActiveSelection && (
         <>
           <button
             aria-label="Move image"

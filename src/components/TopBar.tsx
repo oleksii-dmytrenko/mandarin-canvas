@@ -93,9 +93,6 @@ export function TopBar({ pageRef, canUndo, canRedo, onUndo, onRedo }: TopBarProp
         <img className="brand-mark" src="/mandarin-logo.svg" alt="" />
         <div>
           <strong>Mandarin Canvas</strong>
-          <span>
-            {activePage?.blocks.length ?? 0} text · {activePage?.drawings.length ?? 0} drawing · {activePage?.images.length ?? 0} image
-          </span>
         </div>
       </div>
 

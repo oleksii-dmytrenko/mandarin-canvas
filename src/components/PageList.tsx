@@ -1,7 +1,6 @@
 import { Copy, Eraser, FilePlus2, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useCanvasStore } from "../stores/canvasStore";
-import { IconButton } from "./IconButton";
 
 export function PageList() {
   const {
@@ -79,56 +78,65 @@ export function PageList() {
                 ) : (
                   <>
                     <span className="page-card-title-text">{page.title}</span>
-                    <button
-                      aria-label={`Rename ${page.title}`}
-                      className="page-title-edit-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setActivePage(page.id);
-                        setEditingPageId(page.id);
-                      }}
-                      title="Rename page"
-                      type="button"
-                    >
-                      <Pencil size={14} />
-                    </button>
+                    <div className="page-title-actions" aria-label={`${page.title} actions`}>
+                      <button
+                        aria-label={`Rename ${page.title}`}
+                        className="page-title-action-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setActivePage(page.id);
+                          setEditingPageId(page.id);
+                        }}
+                        title="Rename page"
+                        type="button"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        aria-label={`Duplicate ${page.title}`}
+                        className="page-title-action-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          duplicatePage(page.id);
+                        }}
+                        title="Duplicate page"
+                        type="button"
+                      >
+                        <Copy size={14} />
+                      </button>
+                      <button
+                        aria-label={`Delete ${page.title}`}
+                        className="page-title-action-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (window.confirm(`Delete "${page.title}"?`)) {
+                            deletePage(page.id);
+                          }
+                        }}
+                        title="Delete page"
+                        type="button"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <button
+                        aria-label={`Clean ${page.title}`}
+                        className="page-title-action-button"
+                        disabled={!page.blocks.length && !page.drawings.length && !page.images.length}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          cleanPage(page.id);
+                        }}
+                        title="Clean page"
+                        type="button"
+                      >
+                        <Eraser size={14} />
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
               <div className="page-card-footer">
                 <small>{new Date(page.updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small>
-                {isActive && (
-                  <div className="page-card-actions" aria-label="Page actions">
-                    <IconButton
-                      label="Duplicate page"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        duplicatePage();
-                      }}
-                    >
-                      <Copy size={15} />
-                    </IconButton>
-                    <IconButton
-                      label="Delete page"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        deletePage();
-                      }}
-                    >
-                      <Trash2 size={15} />
-                    </IconButton>
-                    <IconButton
-                      label="Clean page"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        cleanPage();
-                      }}
-                      disabled={!page.blocks.length && !page.drawings.length && !page.images.length}
-                    >
-                      <Eraser size={15} />
-                    </IconButton>
-                  </div>
-                )}
               </div>
             </div>
           );

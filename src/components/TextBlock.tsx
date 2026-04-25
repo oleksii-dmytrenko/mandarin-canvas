@@ -7,6 +7,7 @@ import { RubyText } from "./RubyText";
 interface TextBlockProps {
   block: TextBlockType;
   isSelected: boolean;
+  isInteractive: boolean;
   onStartDrag: (id: string, event: React.PointerEvent) => void;
   onStartResize: (id: string, edge: "left" | "right", event: React.PointerEvent) => void;
   draftTextRef: React.MutableRefObject<Record<string, string>>;
@@ -16,6 +17,7 @@ interface TextBlockProps {
 export function TextBlock({
   block,
   isSelected,
+  isInteractive,
   onStartDrag,
   onStartResize,
   draftTextRef,
@@ -23,6 +25,7 @@ export function TextBlock({
 }: TextBlockProps) {
   const { deleteBlock, updateBlock, setFocusedBlockId, focusedBlockId } = useCanvasStore();
   const isFocused = focusedBlockId === block.id;
+  const isActiveSelection = isSelected && isInteractive;
   const showRuby = block.annotation !== "plain" && !isFocused;
 
   const handleFocus = (event: React.FocusEvent<HTMLDivElement>) => {
@@ -49,8 +52,8 @@ export function TextBlock({
 
   return (
     <article
-      className={`text-block ${isSelected ? "selected" : ""}`}
-      data-editor-object
+      className={`text-block ${isActiveSelection ? "selected" : ""} ${isInteractive ? "" : "inactive-tool"}`}
+      data-editor-object={isInteractive ? true : undefined}
       style={{
         left: block.x,
         top: block.y,
@@ -60,12 +63,13 @@ export function TextBlock({
         fontSize: block.fontSize,
       }}
       onPointerDown={(event) => {
+        if (!isInteractive) return;
         event.stopPropagation();
         useCanvasStore.getState().setSelectedId(block.id, "text");
         useCanvasStore.getState().setCurrentColor(block.color);
       }}
     >
-      {isSelected && (
+      {isActiveSelection && (
         <>
           <button
             aria-label="Move text block"
@@ -108,6 +112,7 @@ export function TextBlock({
         <div
           className="ruby-display"
           onDoubleClick={() => {
+            if (!isInteractive) return;
             setFocusedBlockId(block.id);
             window.setTimeout(() => document.querySelector<HTMLElement>(`[data-block-id="${block.id}"]`)?.focus(), 20);
           }}
@@ -117,7 +122,7 @@ export function TextBlock({
       ) : (
         <div
           className="editable"
-          contentEditable
+          contentEditable={isInteractive}
           data-block-id={block.id}
           suppressContentEditableWarning
           spellCheck={false}

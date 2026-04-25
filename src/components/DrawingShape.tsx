@@ -3,15 +3,18 @@ import type { Drawing } from "../types";
 
 interface DrawingShapeProps {
   drawing: Drawing;
+  isInteractive: boolean;
   onSelect: (event: PointerEvent<SVGElement>) => void;
   selected: boolean;
 }
 
-export function DrawingShape({ drawing, onSelect, selected }: DrawingShapeProps) {
+export function DrawingShape({ drawing, isInteractive, onSelect, selected }: DrawingShapeProps) {
+  const isActiveSelection = selected && isInteractive;
   const wrapperProps = {
-    "data-editor-object": true,
-    className: `drawing-shape ${selected ? "selected" : ""}`,
+    "data-editor-object": isInteractive ? true : undefined,
+    className: `drawing-shape ${isActiveSelection ? "selected" : ""} ${isInteractive ? "" : "inactive-tool"}`,
     onPointerDown: (event: PointerEvent<SVGElement>) => {
+      if (!isInteractive) return;
       event.preventDefault();
       event.stopPropagation();
       onSelect(event);

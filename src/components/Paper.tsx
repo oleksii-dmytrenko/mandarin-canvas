@@ -1,5 +1,5 @@
 import { Trash2 } from "lucide-react";
-import type { PointerEvent, RefObject } from "react";
+import { useRef, type PointerEvent, type RefObject } from "react";
 import type { Drawing, ImageObject as ImageObjectType, TextBlock as TextBlockType } from "../types";
 import { useCanvasStore } from "../stores/canvasStore";
 import { PAGE_WIDTH, PAGE_HEIGHT } from "../utils/constants";
@@ -33,6 +33,7 @@ export function Paper({
     pages,
     activePageId,
     tool,
+    toolColors,
     selectedId,
     setSelectedId,
     setTool,
@@ -47,6 +48,7 @@ export function Paper({
     updateDrawing,
     updateImage,
   } = useCanvasStore();
+  const drawingLayerRef = useRef<SVGSVGElement>(null);
 
   const activePage = pages.find((p) => p.id === activePageId);
   if (!activePage) return null;
@@ -61,11 +63,27 @@ export function Paper({
     };
   };
 
+  const drawingPoint = (event: PointerEvent | React.PointerEvent) => {
+    const svg = drawingLayerRef.current;
+    const matrix = svg?.getScreenCTM()?.inverse();
+    if (!svg || !matrix) return pagePoint(event);
+
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const transformed = point.matrixTransform(matrix);
+
+    return {
+      x: Math.max(0, Math.min(PAGE_WIDTH, transformed.x)),
+      y: Math.max(0, Math.min(PAGE_HEIGHT, transformed.y)),
+    };
+  };
+
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest("[data-editor-object]")) return;
     onCommitFocusedText();
-    const point = pagePoint(event);
+    const point = tool === "text" || tool === "select" ? pagePoint(event) : drawingPoint(event);
 
     if (tool === "text") {
       addBlock(point.x, point.y);
@@ -81,7 +99,7 @@ export function Paper({
     const drawing: Drawing = {
       id: createId(),
       kind: tool,
-      color: useCanvasStore.getState().currentColor,
+      color: toolColors[tool],
       strokeWidth: tool === "pen" ? 3 : 2.5,
       points: tool === "pen" ? [point] : [],
       x: point.x,
@@ -101,7 +119,7 @@ export function Paper({
     }
 
     if (!drawRef.current) return;
-    const point = pagePoint(event);
+    const point = drawingPoint(event);
     const { startX, startY, drawing } = drawRef.current;
     const next: Drawing =
       drawing.kind === "pen"
@@ -227,7 +245,7 @@ export function Paper({
       onPaste={handlePaste}
       tabIndex={0}
     >
-      <svg className="drawing-layer" viewBox={`0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}`} aria-hidden="true">
+      <svg className="drawing-layer" ref={drawingLayerRef} viewBox={`0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}`} aria-hidden="true">
         <defs>
           <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
             <path d="M0,0 L0,6 L9,3 z" fill="context-stroke" />
@@ -236,6 +254,7 @@ export function Paper({
         {[...activePage.drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => (
           <DrawingShape
             drawing={drawing}
+            isInteractive={tool === "select" || tool === drawing.kind}
             key={drawing.id}
             selected={selectedId === drawing.id}
             onSelect={(event) => {
@@ -258,7 +277,7 @@ export function Paper({
       </svg>
 
       {activePage.drawings.map((drawing: Drawing) => {
-        if (selectedId !== drawing.id) return null;
+        if (selectedId !== drawing.id || (tool !== "select" && tool !== drawing.kind)) return null;
         const position = selectedDrawingDeletePosition(drawing);
 
         return (
@@ -288,6 +307,7 @@ export function Paper({
         <ImageObjectComponent
           key={image.id}
           image={image}
+          isInteractive={tool === "select"}
           isSelected={selectedId === image.id}
           onStartDrag={startImageDrag}
           onStartResize={startImageResize}
@@ -298,6 +318,7 @@ export function Paper({
         <TextBlock
           key={block.id}
           block={block}
+          isInteractive={tool === "select" || tool === "text"}
           isSelected={selectedId === block.id}
           onStartDrag={startTextDrag}
           onStartResize={startTextResize}

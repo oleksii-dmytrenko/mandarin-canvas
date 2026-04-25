@@ -1,6 +1,7 @@
 export type Tool = "select" | "text" | "pen" | "rect" | "arrow";
 export type AnnotationMode = "plain" | "pinyin" | "zhuyin";
 export type DrawingKind = "pen" | "rect" | "arrow";
+export type ColorTool = "text" | DrawingKind;
 
 export type TextBlock = {
   id: string;
