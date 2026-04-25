@@ -50,12 +50,23 @@ type Drawing = {
   height?: number;
 };
 
+type ImageObject = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  src: string;
+  alt: string;
+};
+
 type Page = {
   id: string;
   title: string;
   updatedAt: number;
   blocks: TextBlock[];
   drawings: Drawing[];
+  images: ImageObject[];
 };
 
 type StoredState = {
@@ -71,6 +82,8 @@ const PAGE_HEIGHT = 1123;
 const HISTORY_LIMIT = 10;
 const DEFAULT_TEXT_BLOCK_WIDTH = 260;
 const MIN_TEXT_BLOCK_WIDTH = 44;
+const MAX_PASTED_IMAGE_WIDTH = PAGE_WIDTH / 2;
+const MIN_IMAGE_SIZE = 32;
 
 const fonts = [
   { label: "Sans", value: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
@@ -94,6 +107,7 @@ const createPage = (index = 1): Page => ({
   updatedAt: Date.now(),
   blocks: [],
   drawings: [],
+  images: [],
 });
 
 const initialState = (): StoredState => {
@@ -106,7 +120,7 @@ const loadState = (): StoredState => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return initialState();
     const parsed = JSON.parse(raw) as unknown;
-    return isStoredState(parsed) ? parsed : initialState();
+    return isStoredState(parsed) ? normalizeState(parsed) : initialState();
   } catch {
     return initialState();
   }
@@ -145,6 +159,19 @@ const isTextBlock = (value: unknown): value is TextBlock => {
   );
 };
 
+const isImageObject = (value: unknown): value is ImageObject => {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    typeof value.x === "number" &&
+    typeof value.y === "number" &&
+    typeof value.width === "number" &&
+    typeof value.height === "number" &&
+    typeof value.src === "string" &&
+    typeof value.alt === "string"
+  );
+};
+
 const isPage = (value: unknown): value is Page => {
   if (!isRecord(value)) return false;
   return (
@@ -154,7 +181,8 @@ const isPage = (value: unknown): value is Page => {
     Array.isArray(value.blocks) &&
     value.blocks.every(isTextBlock) &&
     Array.isArray(value.drawings) &&
-    value.drawings.every(isDrawing)
+    value.drawings.every(isDrawing) &&
+    (value.images === undefined || (Array.isArray(value.images) && value.images.every(isImageObject)))
   );
 };
 
@@ -173,8 +201,8 @@ const isStoredState = (value: unknown): value is StoredState => {
 };
 
 const parseImportedState = (value: unknown): StoredState | null => {
-  if (isStoredState(value)) return value;
-  if (isRecord(value) && value.app === STATE_FILE_APP && isStoredState(value.state)) return value.state;
+  if (isStoredState(value)) return normalizeState(value);
+  if (isRecord(value) && value.app === STATE_FILE_APP && isStoredState(value.state)) return normalizeState(value.state);
   return null;
 };
 
@@ -187,6 +215,7 @@ const cloneImportedState = (importedState: StoredState): StoredState => {
     updatedAt: now,
     blocks: page.blocks.map((block) => ({ ...block, id: createId() })),
     drawings: page.drawings.map((drawing) => ({ ...drawing, id: createId() })),
+    images: page.images.map((image) => ({ ...image, id: createId() })),
   }));
 
   return {
@@ -202,6 +231,14 @@ const appendImportedState = (currentState: StoredState, importedState: StoredSta
     pages: [...clonedState.pages, ...currentState.pages],
   };
 };
+
+const normalizeState = (storedState: StoredState): StoredState => ({
+  ...storedState,
+  pages: storedState.pages.map((page) => ({
+    ...page,
+    images: page.images ?? [],
+  })),
+});
 
 const hasHanzi = (value: string) => /[\u3400-\u9fff]/.test(value);
 
@@ -291,7 +328,7 @@ function App() {
   const [state, setState] = useState<StoredState>(() => loadState());
   const [tool, setTool] = useState<Tool>("text");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedKind, setSelectedKind] = useState<"text" | "drawing" | null>(null);
+  const [selectedKind, setSelectedKind] = useState<"text" | "drawing" | "image" | null>(null);
   const [currentColor, setCurrentColor] = useState("#1d1d1f");
   const [defaultAnnotation, setDefaultAnnotation] = useState<AnnotationMode>("plain");
   const [draftDrawing, setDraftDrawing] = useState<Drawing | null>(null);
@@ -331,6 +368,30 @@ function App() {
         baseState: StoredState;
         historyTracked: boolean;
       }
+    | {
+        kind: "image";
+        id: string;
+        startX: number;
+        startY: number;
+        baseX: number;
+        baseY: number;
+        baseWidth: number;
+        baseHeight: number;
+        baseState: StoredState;
+        historyTracked: boolean;
+      }
+    | {
+        kind: "image-resize";
+        id: string;
+        startX: number;
+        startY: number;
+        baseX: number;
+        baseY: number;
+        baseWidth: number;
+        baseHeight: number;
+        baseState: StoredState;
+        historyTracked: boolean;
+      }
     | null
   >(null);
   const drawRef = useRef<{ startX: number; startY: number; drawing: Drawing } | null>(null);
@@ -345,6 +406,7 @@ function App() {
 
   const selectedBlock = activePage.blocks.find((block) => block.id === selectedId);
   const selectedDrawing = activePage.drawings.find((drawing) => drawing.id === selectedId);
+  const selectedImage = activePage.images.find((image) => image.id === selectedId);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -520,9 +582,23 @@ function App() {
           },
           false,
         );
-      } else {
+      } else if (dragRef.current.kind === "drawing") {
         const clamped = clampDrawingDelta(dragRef.current.baseDrawing, deltaX, deltaY);
         updateDrawing(dragRef.current.id, translateDrawing(dragRef.current.baseDrawing, clamped.x, clamped.y), false);
+      } else if (dragRef.current.kind === "image") {
+        const nextX = Math.max(0, Math.min(PAGE_WIDTH - dragRef.current.baseWidth, dragRef.current.baseX + deltaX));
+        const nextY = Math.max(0, Math.min(PAGE_HEIGHT - dragRef.current.baseHeight, dragRef.current.baseY + deltaY));
+        updateImage(dragRef.current.id, { x: nextX, y: nextY }, false);
+      } else {
+        const requestedWidth = dragRef.current.baseWidth + deltaX;
+        const requestedHeight = dragRef.current.baseHeight + deltaY;
+        const nextWidth = Math.max(MIN_IMAGE_SIZE, Math.min(PAGE_WIDTH - dragRef.current.baseX, requestedWidth));
+        const nextHeight = Math.max(MIN_IMAGE_SIZE, Math.min(PAGE_HEIGHT - dragRef.current.baseY, requestedHeight));
+        const minScale = Math.max(MIN_IMAGE_SIZE / dragRef.current.baseWidth, MIN_IMAGE_SIZE / dragRef.current.baseHeight);
+        const scale = Math.max(minScale, Math.min(nextWidth / dragRef.current.baseWidth, nextHeight / dragRef.current.baseHeight));
+        const width = Math.min(PAGE_WIDTH - dragRef.current.baseX, dragRef.current.baseWidth * scale);
+        const height = Math.min(PAGE_HEIGHT - dragRef.current.baseY, dragRef.current.baseHeight * scale);
+        updateImage(dragRef.current.id, { width, height }, false);
       }
       return;
     }
@@ -606,12 +682,73 @@ function App() {
     );
   };
 
+  const updateImage = (id: string, patch: Partial<ImageObject>, recordHistory = true) => {
+    updateActivePage(
+      (page) => ({
+        ...page,
+        images: page.images.map((image) => (image.id === id ? { ...image, ...patch } : image)),
+      }),
+      recordHistory,
+    );
+  };
+
+  const readImageFile = (file: File) =>
+    new Promise<ImageObject>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("error", () => reject(reader.error));
+      reader.addEventListener("load", () => {
+        const src = String(reader.result ?? "");
+        const image = new Image();
+        image.addEventListener("error", reject);
+        image.addEventListener("load", () => {
+          const scale = Math.min(1, MAX_PASTED_IMAGE_WIDTH / image.naturalWidth, PAGE_HEIGHT / 2 / image.naturalHeight);
+          const width = Math.max(MIN_IMAGE_SIZE, image.naturalWidth * scale);
+          const height = Math.max(MIN_IMAGE_SIZE, image.naturalHeight * scale);
+          resolve({
+            id: createId(),
+            x: Math.max(0, (PAGE_WIDTH - width) / 2),
+            y: Math.max(0, (PAGE_HEIGHT - height) / 2),
+            width,
+            height,
+            src,
+            alt: file.name || "Pasted image",
+          });
+        });
+        image.src = src;
+      });
+      reader.readAsDataURL(file);
+    });
+
+  const handlePaste = async (event: React.ClipboardEvent<HTMLDivElement>) => {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+
+    if (!files.length) return;
+    event.preventDefault();
+    commitFocusedText();
+
+    try {
+      const images = await Promise.all(files.map(readImageFile));
+      updateActivePage((page) => ({ ...page, images: [...page.images, ...images] }));
+      const lastImage = images[images.length - 1];
+      setSelectedId(lastImage.id);
+      setSelectedKind("image");
+      setTool("select");
+      setFocusedBlockId(null);
+    } catch {
+      window.alert("Could not paste that image.");
+    }
+  };
+
   const deleteSelection = () => {
     if (!selectedId) return;
     updateActivePage((page) => ({
       ...page,
       blocks: page.blocks.filter((block) => block.id !== selectedId),
       drawings: page.drawings.filter((drawing) => drawing.id !== selectedId),
+      images: page.images.filter((image) => image.id !== selectedId),
     }));
     setSelectedId(null);
     setSelectedKind(null);
@@ -641,6 +778,17 @@ function App() {
     }
   };
 
+  const deleteImage = (id: string) => {
+    updateActivePage((page) => ({
+      ...page,
+      images: page.images.filter((image) => image.id !== id),
+    }));
+    if (selectedId === id) {
+      setSelectedId(null);
+      setSelectedKind(null);
+    }
+  };
+
   const createNewPage = () => {
     commitFocusedText();
     const page = createPage(state.pages.length + 1);
@@ -659,6 +807,7 @@ function App() {
       updatedAt: Date.now(),
       blocks: activePage.blocks.map((block) => ({ ...block, id: createId() })),
       drawings: activePage.drawings.map((drawing) => ({ ...drawing, id: createId() })),
+      images: activePage.images.map((image) => ({ ...image, id: createId() })),
     };
     updateStoredState((previous) => ({ activePageId: copy.id, pages: [copy, ...previous.pages] }));
   };
@@ -669,6 +818,7 @@ function App() {
       ...page,
       blocks: [],
       drawings: [],
+      images: [],
     }));
     draftTextRef.current = {};
     setSelectedId(null);
@@ -799,13 +949,13 @@ function App() {
   };
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" onPaste={handlePaste}>
       <header className="topbar" onPointerDownCapture={commitFocusedText}>
         <div className="brand">
           <span className="brand-mark">文</span>
           <div>
             <strong>Mandarin Canvas</strong>
-            <span>{activePage.blocks.length} text · {activePage.drawings.length} drawing</span>
+            <span>{activePage.blocks.length} text · {activePage.drawings.length} drawing · {activePage.images.length} image</span>
           </div>
         </div>
 
@@ -973,7 +1123,7 @@ function App() {
                           event.stopPropagation();
                           cleanPage();
                         }}
-                        disabled={!page.blocks.length && !page.drawings.length}
+                        disabled={!page.blocks.length && !page.drawings.length && !page.images.length}
                       >
                         <Eraser size={15} />
                       </IconButton>
@@ -1055,6 +1205,7 @@ function App() {
             onPointerMove={handlePagePointerMove}
             onPointerUp={handlePagePointerUp}
             onPointerCancel={handlePagePointerUp}
+            tabIndex={0}
           >
             <svg className="drawing-layer" viewBox={`0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}`} aria-hidden="true">
               <defs>
@@ -1113,6 +1264,109 @@ function App() {
                 </button>
               );
             })}
+
+            {activePage.images.map((image) => (
+              <figure
+                className={`image-object ${selectedId === image.id ? "selected" : ""}`}
+                data-editor-object
+                key={image.id}
+                style={{
+                  left: image.x,
+                  top: image.y,
+                  width: image.width,
+                  height: image.height,
+                }}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSelectedId(image.id);
+                  setSelectedKind("image");
+                  setTool("select");
+                  dragRef.current = {
+                    kind: "image",
+                    id: image.id,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    baseX: image.x,
+                    baseY: image.y,
+                    baseWidth: image.width,
+                    baseHeight: image.height,
+                    baseState: state,
+                    historyTracked: false,
+                  };
+                  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+                }}
+              >
+                <img alt={image.alt} draggable={false} src={image.src} />
+                {selectedId === image.id && (
+                  <>
+                    <button
+                      aria-label="Move image"
+                      className="drag-handle"
+                      data-export-hidden="true"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        dragRef.current = {
+                          kind: "image",
+                          id: image.id,
+                          startX: event.clientX,
+                          startY: event.clientY,
+                          baseX: image.x,
+                          baseY: image.y,
+                          baseWidth: image.width,
+                          baseHeight: image.height,
+                          baseState: state,
+                          historyTracked: false,
+                        };
+                        (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+                      }}
+                    >
+                      <CircleSlash size={12} />
+                    </button>
+                    <button
+                      aria-label="Delete image"
+                      className="object-delete-button text-delete-button"
+                      data-export-hidden="true"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteImage(image.id);
+                      }}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      type="button"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                    <button
+                      aria-label="Resize image"
+                      className="image-resize-handle"
+                      data-export-hidden="true"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        dragRef.current = {
+                          kind: "image-resize",
+                          id: image.id,
+                          startX: event.clientX,
+                          startY: event.clientY,
+                          baseX: image.x,
+                          baseY: image.y,
+                          baseWidth: image.width,
+                          baseHeight: image.height,
+                          baseState: state,
+                          historyTracked: false,
+                        };
+                        (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+                      }}
+                      type="button"
+                    />
+                  </>
+                )}
+              </figure>
+            ))}
 
             {activePage.blocks.map((block) => (
               <article

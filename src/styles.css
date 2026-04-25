@@ -390,6 +390,7 @@ button {
   box-shadow: 0 14px 42px rgba(29, 29, 31, 0.16);
   height: 1123px;
   margin: 0 auto;
+  outline: none;
   overflow: hidden;
   position: relative;
   width: 794px;
@@ -452,7 +453,37 @@ button {
   z-index: 4;
 }
 
+.image-object {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  margin: 0;
+  overflow: visible;
+  position: absolute;
+  touch-action: none;
+  z-index: 2;
+}
+
+.image-object.selected {
+  border-color: #0b57d0;
+  box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12);
+  z-index: 4;
+}
+
+.image-object img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  width: 100%;
+}
+
 .paper[data-exporting="true"] .text-block {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.paper[data-exporting="true"] .image-object {
   border-color: transparent;
   box-shadow: none;
 }
@@ -549,6 +580,20 @@ rt {
 
 .resize-handle-right {
   right: -5px;
+}
+
+.image-resize-handle {
+  background: #0b57d0;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  bottom: -8px;
+  box-shadow: 0 1px 5px rgba(29, 29, 31, 0.16);
+  cursor: nwse-resize;
+  height: 16px;
+  position: absolute;
+  right: -8px;
+  width: 16px;
+  z-index: 4;
 }
 
 .drawing-delete-button {
@@ -658,7 +703,14 @@ rt {
     box-shadow: none !important;
   }
 
-  .drag-handle {
+  .image-object {
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .drag-handle,
+  .image-resize-handle,
+  .object-delete-button {
     display: none !important;
   }
 }
