@@ -5,6 +5,7 @@ import { useCanvasStore } from "../stores/canvasStore";
 import { PAGE_WIDTH, PAGE_HEIGHT } from "../utils/constants";
 import { createId } from "../utils/id";
 import { selectedDrawingDeletePosition } from "../utils/drawing";
+import type { DrawingResizeHandle } from "../utils/drawing";
 import { DrawingShape } from "./DrawingShape";
 import { ImageObject as ImageObjectComponent } from "./ImageObject";
 import { TextBlock } from "./TextBlock";
@@ -34,10 +35,13 @@ export function Paper({
     activePageId,
     tool,
     toolColors,
+    toolStrokeWidths,
     selectedId,
+    focusedBlockId,
     setSelectedId,
     setTool,
     setCurrentColor,
+    setFocusedBlockId,
     draftDrawing,
     setDraftDrawing,
     addBlock,
@@ -82,12 +86,20 @@ export function Paper({
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest("[data-editor-object]")) return;
+    const activeEditable = document.activeElement instanceof HTMLElement ? document.activeElement.closest("[data-block-id]") : null;
+    if (focusedBlockId || activeEditable) {
+      onCommitFocusedText();
+      setFocusedBlockId(null);
+      setSelectedId(null, null);
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      return;
+    }
     onCommitFocusedText();
     const point = tool === "text" || tool === "select" ? pagePoint(event) : drawingPoint(event);
 
     if (tool === "text") {
-      addBlock(point.x, point.y);
-      window.setTimeout(() => document.querySelector<HTMLElement>(`[data-block-id="${activePage.blocks[activePage.blocks.length - 1]?.id}"]`)?.focus(), 30);
+      const blockId = addBlock(point.x, point.y);
+      window.setTimeout(() => document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`)?.focus(), 30);
       return;
     }
 
@@ -100,7 +112,7 @@ export function Paper({
       id: createId(),
       kind: tool,
       color: toolColors[tool],
-      strokeWidth: tool === "pen" ? 3 : 2.5,
+      strokeWidth: toolStrokeWidths[tool],
       points: tool === "pen" ? [point] : [],
       x: point.x,
       y: point.y,
@@ -234,6 +246,20 @@ export function Paper({
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   };
 
+  const startDrawingResize = (drawing: Drawing, handle: DrawingResizeHandle, event: React.PointerEvent<SVGElement>) => {
+    dragRef.current = {
+      kind: "drawing-resize",
+      id: drawing.id,
+      handle,
+      startX: event.clientX,
+      startY: event.clientY,
+      baseDrawing: drawing,
+      baseState: { activePageId, pages },
+      historyTracked: false,
+    };
+    (event.currentTarget as SVGElement).setPointerCapture(event.pointerId);
+  };
+
   return (
     <div
       className={`paper tool-${tool}`}
@@ -272,6 +298,7 @@ export function Paper({
               };
               (event.currentTarget as SVGElement).setPointerCapture(event.pointerId);
             }}
+            onStartResize={(handle, event) => startDrawingResize(drawing, handle, event)}
           />
         ))}
       </svg>

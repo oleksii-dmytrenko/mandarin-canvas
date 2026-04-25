@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AnnotationMode, ColorTool, Drawing, DrawingKind, ImageObject, Page, StoredState, TextBlock, Tool } from "../types";
-import { DEFAULT_TEXT_BLOCK_WIDTH, PAGE_HEIGHT, PAGE_WIDTH, STORAGE_KEY, defaultToolColors } from "../utils/constants";
+import { DEFAULT_TEXT_BLOCK_WIDTH, PAGE_HEIGHT, PAGE_WIDTH, STORAGE_KEY, defaultTextStyle, defaultToolColors, defaultToolStrokeWidths } from "../utils/constants";
 import { createId } from "../utils/id";
 import { isStoredState, normalizeState } from "../utils/validation";
 
@@ -36,6 +36,8 @@ interface CanvasState extends StoredState {
   selectedKind: "text" | "drawing" | "image" | null;
   currentColor: string;
   toolColors: Record<ColorTool, string>;
+  toolStrokeWidths: Record<DrawingKind, number>;
+  textStyle: Pick<TextBlock, "fontFamily" | "fontSize" | "annotation">;
   defaultAnnotation: AnnotationMode;
   draftDrawing: Drawing | null;
   focusedBlockId: string | null;
@@ -49,6 +51,8 @@ interface CanvasActions {
   setSelectedId: (id: string | null, kind?: "text" | "drawing" | "image" | null) => void;
   setSelectedKind: (kind: "text" | "drawing" | "image" | null) => void;
   setCurrentColor: (color: string) => void;
+  setToolStrokeWidth: (tool: DrawingKind, strokeWidth: number) => void;
+  setTextStyle: (patch: Partial<CanvasState["textStyle"]>) => void;
   setDefaultAnnotation: (mode: AnnotationMode) => void;
   setDraftDrawing: (drawing: Drawing | null) => void;
   setFocusedBlockId: (id: string | null) => void;
@@ -64,7 +68,7 @@ interface CanvasActions {
   cleanPage: (pageId?: string) => void;
 
   // Text block actions
-  addBlock: (x: number, y: number) => void;
+  addBlock: (x: number, y: number) => string;
   updateBlock: (id: string, patch: Partial<TextBlock>) => void;
   deleteBlock: (id: string) => void;
 
@@ -104,7 +108,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       selectedKind: null,
       currentColor: defaultToolColors.text,
       toolColors: defaultToolColors,
-      defaultAnnotation: "pinyin",
+      toolStrokeWidths: defaultToolStrokeWidths,
+      textStyle: defaultTextStyle,
+      defaultAnnotation: defaultTextStyle.annotation,
       draftDrawing: null,
       focusedBlockId: null,
       editingPageId: null,
@@ -128,7 +134,15 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
             ...(colorTool && { toolColors: { ...state.toolColors, [colorTool]: color } }),
           };
         }),
-      setDefaultAnnotation: (mode) => set({ defaultAnnotation: mode }),
+      setToolStrokeWidth: (tool, strokeWidth) =>
+        set((state) => ({ toolStrokeWidths: { ...state.toolStrokeWidths, [tool]: strokeWidth } })),
+      setTextStyle: (patch) =>
+        set((state) => ({
+          textStyle: { ...state.textStyle, ...patch },
+          ...(patch.annotation && { defaultAnnotation: patch.annotation }),
+        })),
+      setDefaultAnnotation: (mode) =>
+        set((state) => ({ defaultAnnotation: mode, textStyle: { ...state.textStyle, annotation: mode } })),
       setDraftDrawing: (drawing) => set({ draftDrawing: drawing }),
       setFocusedBlockId: (id) => set({ focusedBlockId: id }),
       setEditingPageId: (id) => set({ editingPageId: id }),
@@ -202,17 +216,17 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 
       // Text block actions
       addBlock: (x, y) => {
-        const { pages, activePageId, toolColors, defaultAnnotation } = get();
+        const { pages, activePageId, toolColors, textStyle } = get();
         const block: TextBlock = {
           id: createId(),
           x,
           y,
           width: DEFAULT_TEXT_BLOCK_WIDTH,
           content: "",
-          fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-          fontSize: 28,
+          fontFamily: textStyle.fontFamily,
+          fontSize: textStyle.fontSize,
           color: toolColors.text,
-          annotation: defaultAnnotation,
+          annotation: textStyle.annotation,
         };
         set({
           pages: pages.map((page) =>
@@ -224,6 +238,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           selectedKind: "text",
           focusedBlockId: block.id,
         });
+        return block.id;
       },
 
       updateBlock: (id, patch) => {

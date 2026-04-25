@@ -1,7 +1,7 @@
 import { useRef, useCallback } from "react";
 import type { Drawing, StoredState } from "../types";
-import { MIN_IMAGE_SIZE, MIN_TEXT_BLOCK_WIDTH, PAGE_HEIGHT, PAGE_WIDTH } from "../utils/constants";
-import { clampDrawingDelta, translateDrawing } from "../utils/drawing";
+import { MIN_DRAWING_SIZE, MIN_IMAGE_SIZE, MIN_TEXT_BLOCK_WIDTH, PAGE_HEIGHT, PAGE_WIDTH } from "../utils/constants";
+import { clampDrawingDelta, resizeArrowDrawing, resizeRectDrawing, translateDrawing, type DrawingResizeHandle } from "../utils/drawing";
 
 export type DragState =
   | {
@@ -27,6 +27,16 @@ export type DragState =
   | {
       kind: "drawing";
       id: string;
+      startX: number;
+      startY: number;
+      baseDrawing: Drawing;
+      baseState: StoredState;
+      historyTracked: boolean;
+    }
+  | {
+      kind: "drawing-resize";
+      id: string;
+      handle: DrawingResizeHandle;
       startX: number;
       startY: number;
       baseDrawing: Drawing;
@@ -134,6 +144,18 @@ export function useDrag({
       } else if (dragRef.current.kind === "drawing") {
         const clamped = clampDrawingDelta(dragRef.current.baseDrawing, deltaX, deltaY);
         onUpdateDrawing(dragRef.current.id, translateDrawing(dragRef.current.baseDrawing, clamped.x, clamped.y), false);
+      } else if (dragRef.current.kind === "drawing-resize") {
+        const resizeDrawing =
+          dragRef.current.baseDrawing.kind === "arrow"
+            ? resizeArrowDrawing(dragRef.current.baseDrawing, dragRef.current.handle === "start" ? "start" : "end", deltaX, deltaY, MIN_DRAWING_SIZE)
+            : dragRef.current.handle === "start" || dragRef.current.handle === "end"
+              ? dragRef.current.baseDrawing
+              : resizeRectDrawing(dragRef.current.baseDrawing, dragRef.current.handle, deltaX, deltaY, MIN_DRAWING_SIZE);
+        onUpdateDrawing(
+          dragRef.current.id,
+          resizeDrawing,
+          false,
+        );
       } else if (dragRef.current.kind === "image") {
         const nextX = Math.max(0, Math.min(PAGE_WIDTH - dragRef.current.baseWidth, dragRef.current.baseX + deltaX));
         const nextY = Math.max(0, Math.min(PAGE_HEIGHT - dragRef.current.baseHeight, dragRef.current.baseY + deltaY));

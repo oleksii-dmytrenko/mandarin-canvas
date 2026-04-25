@@ -1,5 +1,5 @@
-import { CircleSlash, Trash2 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { TextBlock as TextBlockType } from "../types";
 import { useCanvasStore } from "../stores/canvasStore";
 import { RubyText } from "./RubyText";
@@ -23,14 +23,43 @@ export function TextBlock({
   draftTextRef,
   composingRef,
 }: TextBlockProps) {
-  const { deleteBlock, updateBlock, setFocusedBlockId, focusedBlockId } = useCanvasStore();
-  const isFocused = focusedBlockId === block.id;
+  const { deleteBlock, updateBlock, setFocusedBlockId } = useCanvasStore();
   const isActiveSelection = isSelected && isInteractive;
-  const showRuby = block.annotation !== "plain" && !isFocused;
+  const showAnnotations = block.annotation !== "plain";
+  const editableRef = useRef<HTMLDivElement>(null);
+  const [draftContent, setDraftContent] = useState(block.content);
+
+  useEffect(() => {
+    if (!isActiveSelection) setDraftContent(block.content);
+  }, [block.content, isActiveSelection]);
+
+  useEffect(() => {
+    if (!isActiveSelection) return;
+    const editable = editableRef.current;
+    if (!editable) return;
+
+    const focusAtEnd = () => {
+      editable.focus();
+      const range = document.createRange();
+      range.selectNodeContents(editable);
+      range.collapse(false);
+
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      setFocusedBlockId(block.id);
+      draftTextRef.current[block.id] = editable.innerText;
+    };
+
+    const frame = window.requestAnimationFrame(focusAtEnd);
+    return () => window.cancelAnimationFrame(frame);
+  }, [block.id, draftTextRef, isActiveSelection, setFocusedBlockId]);
 
   const handleFocus = (event: React.FocusEvent<HTMLDivElement>) => {
     setFocusedBlockId(block.id);
-    draftTextRef.current[block.id] = event.currentTarget.innerText;
+    const content = event.currentTarget.innerText;
+    setDraftContent(content);
+    draftTextRef.current[block.id] = content;
   };
 
   const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
@@ -64,6 +93,7 @@ export function TextBlock({
       }}
       onPointerDown={(event) => {
         if (!isInteractive) return;
+        event.preventDefault();
         event.stopPropagation();
         useCanvasStore.getState().setSelectedId(block.id, "text");
         useCanvasStore.getState().setCurrentColor(block.color);
@@ -71,15 +101,16 @@ export function TextBlock({
     >
       {isActiveSelection && (
         <>
-          <button
-            aria-label="Move text block"
-            className="drag-handle"
-            data-export-hidden="true"
-            onPointerDown={(event) => onStartDrag(block.id, event)}
-            type="button"
-          >
-            <CircleSlash size={12} />
-          </button>
+          {(["top", "bottom"] as const).map((edge) => (
+            <button
+              aria-label={`Move text block from ${edge} edge`}
+              className={`text-drag-zone text-drag-zone-${edge}`}
+              data-export-hidden="true"
+              key={edge}
+              onPointerDown={(event) => onStartDrag(block.id, event)}
+              type="button"
+            />
+          ))}
           <button
             aria-label="Delete text block"
             className="object-delete-button text-delete-button"
@@ -108,27 +139,55 @@ export function TextBlock({
           ))}
         </>
       )}
-      {showRuby ? (
-        <div
-          className="ruby-display"
-          onDoubleClick={() => {
-            if (!isInteractive) return;
-            setFocusedBlockId(block.id);
-            window.setTimeout(() => document.querySelector<HTMLElement>(`[data-block-id="${block.id}"]`)?.focus(), 20);
-          }}
-        >
+      {!isActiveSelection && showAnnotations ? (
+        <div className="ruby-display">
           <RubyText text={block.content} mode={block.annotation} />
+        </div>
+      ) : isActiveSelection && showAnnotations ? (
+        <div className="text-editor-stack">
+          <div className="ruby-display annotation-preview" aria-hidden="true">
+            <RubyText text={draftContent} mode={block.annotation} />
+          </div>
+          <div
+            className="editable annotation-editable"
+            contentEditable
+            data-block-id={block.id}
+            ref={editableRef}
+            suppressContentEditableWarning
+            spellCheck={false}
+            onCompositionEnd={(event) => {
+              composingRef.current = false;
+              const content = event.currentTarget.innerText;
+              setDraftContent(content);
+              draftTextRef.current[block.id] = content;
+            }}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onInput={(event) => {
+              const content = event.currentTarget.innerText;
+              setDraftContent(content);
+              draftTextRef.current[block.id] = content;
+            }}
+          >
+            {block.content}
+          </div>
         </div>
       ) : (
         <div
           className="editable"
-          contentEditable={isInteractive}
+          contentEditable={isActiveSelection}
           data-block-id={block.id}
+          ref={editableRef}
           suppressContentEditableWarning
           spellCheck={false}
           onCompositionEnd={(event) => {
             composingRef.current = false;
-            draftTextRef.current[block.id] = event.currentTarget.innerText;
+            const content = event.currentTarget.innerText;
+            setDraftContent(content);
+            draftTextRef.current[block.id] = content;
           }}
           onCompositionStart={() => {
             composingRef.current = true;
@@ -136,7 +195,9 @@ export function TextBlock({
           onFocus={handleFocus}
           onBlur={handleBlur}
           onInput={(event) => {
-            draftTextRef.current[block.id] = event.currentTarget.innerText;
+            const content = event.currentTarget.innerText;
+            setDraftContent(content);
+            draftTextRef.current[block.id] = content;
           }}
         >
           {block.content}

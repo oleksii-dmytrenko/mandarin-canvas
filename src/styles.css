@@ -666,6 +666,25 @@ button {
   cursor: text;
 }
 
+.text-editor-stack {
+  display: grid;
+}
+
+.text-editor-stack > * {
+  grid-area: 1 / 1;
+}
+
+.annotation-preview {
+  pointer-events: none;
+}
+
+.annotation-editable {
+  caret-color: var(--ink);
+  color: currentColor;
+  transform: translateY(0.28em);
+  -webkit-text-fill-color: transparent;
+}
+
 ruby {
   ruby-position: over;
 }
@@ -695,6 +714,30 @@ rt {
 
 .drag-handle:active {
   cursor: grabbing;
+}
+
+.text-drag-zone {
+  background: transparent;
+  border: 0;
+  cursor: grab;
+  height: 10px;
+  left: 10px;
+  padding: 0;
+  position: absolute;
+  right: 10px;
+  z-index: 4;
+}
+
+.text-drag-zone:active {
+  cursor: grabbing;
+}
+
+.text-drag-zone-top {
+  top: -5px;
+}
+
+.text-drag-zone-bottom {
+  bottom: -5px;
 }
 
 .object-delete-button {
@@ -759,6 +802,12 @@ rt {
 
 .drawing-delete-button {
   transform: translate(-50%, -50%);
+}
+
+.drawing-resize-handle {
+  filter: drop-shadow(0 1px 3px rgba(48, 43, 33, 0.18));
+  pointer-events: auto;
+  vector-effect: non-scaling-stroke;
 }
 
 @media (max-width: 860px) {
