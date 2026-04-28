@@ -11,16 +11,22 @@ export function RubyText({ text, mode }: RubyTextProps) {
 
   return (
     <>
-      {[...text].map((char, index) => {
-        const annotation = annotationForChar(char, mode);
-        if (!annotation) return <span key={`${char}-${index}`}>{char}</span>;
-        return (
-          <ruby key={`${char}-${index}`}>
-            {char}
-            <rt>{annotation}</rt>
-          </ruby>
-        );
-      })}
+      {(text || " ").split("\n").map((line, lineIndex) => (
+        <span className="ruby-line" key={lineIndex}>
+          {line
+            ? [...line].map((char, charIndex) => {
+                const annotation = annotationForChar(char, mode);
+                if (!annotation) return <span key={`${char}-${lineIndex}-${charIndex}`}>{char}</span>;
+                return (
+                  <span className="ruby-token" key={`${char}-${lineIndex}-${charIndex}`}>
+                    <span className="ruby-base">{char}</span>
+                    <span className="ruby-annotation">{annotation}</span>
+                  </span>
+                );
+              })
+            : "\u00a0"}
+        </span>
+      ))}
     </>
   );
 }

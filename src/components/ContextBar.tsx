@@ -16,15 +16,18 @@ export function ContextBar() {
     toolStrokeWidths,
     textStyle,
     updateBlock,
+    updateBackgroundText,
     updateDrawing,
     setToolStrokeWidth,
     setTextStyle,
+    setBackgroundTextStyle,
     setDefaultAnnotation,
   } = useCanvasStore();
 
   const activePage = useMemo(() => pages.find((p) => p.id === activePageId), [pages, activePageId]);
   const selectedBlock = activePage?.blocks.find((b) => b.id === selectedId);
   const selectedDrawing = activePage?.drawings.find((d) => d.id === selectedId);
+  const backgroundText = activePage?.backgroundText;
 
   const setBlockAnnotation = (blockId: string, annotation: "plain" | "pinyin" | "zhuyin") => {
     setDefaultAnnotation(annotation);
@@ -36,6 +39,11 @@ export function ContextBar() {
     if (selectedKind === "text" && selectedBlock) {
       updateBlock(selectedBlock.id, patch);
     }
+  };
+
+  const updateBackgroundStyle = (patch: Partial<typeof textStyle>) => {
+    setBackgroundTextStyle(patch);
+    updateBackgroundText(patch);
   };
 
   const visibleTextStyle = selectedKind === "text" && selectedBlock ? selectedBlock : textStyle;
@@ -62,6 +70,40 @@ export function ContextBar() {
               }}
             />
           </label>
+        </>
+      ) : tool === "multiline-text" && backgroundText ? (
+        <>
+          <label>
+            Font
+            <Segmented
+              value={backgroundText.fontFamily}
+              options={fonts.map((font) => [font.value, font.label])}
+              preserveFocus
+              onChange={(fontFamily) => updateBackgroundStyle({ fontFamily })}
+            />
+          </label>
+          <label>
+            Size
+            <input
+              aria-label="Font size"
+              min={12}
+              max={96}
+              type="number"
+              value={backgroundText.fontSize}
+              onChange={(event) => {
+                updateBackgroundStyle({ fontSize: Number(event.target.value) });
+              }}
+            />
+          </label>
+          <Segmented
+            value={backgroundText.annotation}
+            options={[
+              ["plain", "Plain"],
+              ["pinyin", "Pinyin"],
+              ["zhuyin", "Zhuyin"],
+            ]}
+            onChange={(value) => updateBackgroundStyle({ annotation: value as "plain" | "pinyin" | "zhuyin" })}
+          />
         </>
       ) : tool === "text" ? (
         <>

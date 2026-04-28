@@ -1,4 +1,4 @@
-import { ArrowUpRight, Camera, Download, MousePointer2, PenLine, Printer, RectangleHorizontal, Redo2, TextCursorInput, Undo2, Upload } from "lucide-react";
+import { AlignLeft, ArrowUpRight, Camera, Download, MousePointer2, PenLine, Printer, RectangleHorizontal, Redo2, TextCursorInput, Undo2, Upload } from "lucide-react";
 import { useRef } from "react";
 import { useCanvasStore } from "../stores/canvasStore";
 import { colorSwatches } from "../utils/constants";
@@ -23,10 +23,12 @@ export function TopBar({ pageRef, canUndo, canRedo, onUndo, onRedo }: TopBarProp
     currentColor,
     setCurrentColor,
     selectedId,
+    selectedKind,
     pages,
     activePageId,
     isExporting,
     setIsExporting,
+    updateBackgroundText,
     updateBlock,
     updateDrawing,
     importState,
@@ -100,7 +102,10 @@ export function TopBar({ pageRef, canUndo, canRedo, onUndo, onRedo }: TopBarProp
         <IconButton active={tool === "select"} label="Select" onClick={() => setTool("select")}>
           <MousePointer2 size={18} />
         </IconButton>
-        <IconButton active={tool === "text"} label="Text" onClick={() => setTool("text")}>
+        <IconButton active={tool === "multiline-text"} label="Multiline text" onClick={() => setTool("multiline-text")}>
+          <AlignLeft size={18} />
+        </IconButton>
+        <IconButton active={tool === "text"} label="Small text" onClick={() => setTool("text")}>
           <TextCursorInput size={18} />
         </IconButton>
         <IconButton active={tool === "pen"} label="Pen" onClick={() => setTool("pen")}>
@@ -123,8 +128,9 @@ export function TopBar({ pageRef, canUndo, canRedo, onUndo, onRedo }: TopBarProp
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               setCurrentColor(color);
-              if (selectedBlock) updateBlock(selectedBlock.id, { color });
-              if (selectedDrawing) updateDrawing(selectedDrawing.id, { color });
+              if (tool === "multiline-text") updateBackgroundText({ color });
+              if (selectedKind === "text" && selectedBlock) updateBlock(selectedBlock.id, { color });
+              if (selectedKind === "drawing" && selectedDrawing) updateDrawing(selectedDrawing.id, { color });
             }}
             style={{ backgroundColor: color }}
           />

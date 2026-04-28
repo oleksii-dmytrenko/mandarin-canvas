@@ -1,4 +1,4 @@
-import type { ColorTool, DrawingKind, TextBlock } from "../types";
+import type { BackgroundText, ColorTool, DrawingKind, TextBlock } from "../types";
 
 export const STORAGE_KEY = "mandarin-canvas:v1";
 export const STATE_FILE_APP = "mandarin-canvas";
@@ -29,11 +29,20 @@ export const defaultTextStyle: Pick<TextBlock, "fontFamily" | "fontSize" | "anno
 export const colorSwatches = ["#20211F", "#D95027", "#2B6F63", "#2F5EAA", "#747B73", "#B7352C"];
 
 export const defaultToolColors: Record<ColorTool, string> = {
+  "multiline-text": "#20211F",
   text: "#2B6F63",
   pen: "#D95027",
   arrow: "#2F5EAA",
   rect: "#B7352C",
 };
+
+export const defaultBackgroundText = (): BackgroundText => ({
+  content: "",
+  fontFamily: defaultTextStyle.fontFamily,
+  fontSize: defaultTextStyle.fontSize,
+  color: defaultToolColors["multiline-text"],
+  annotation: defaultTextStyle.annotation,
+});
 
 export const defaultToolStrokeWidths: Record<DrawingKind, number> = {
   pen: 3,

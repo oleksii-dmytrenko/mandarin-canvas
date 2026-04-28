@@ -1,4 +1,5 @@
-import type { Drawing, ImageObject, Page, StoredState, TextBlock } from "../types";
+import type { BackgroundText, Drawing, ImageObject, Page, StoredState, TextBlock } from "../types";
+import { defaultBackgroundText } from "./constants";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -33,6 +34,17 @@ const isTextBlock = (value: unknown): value is TextBlock => {
   );
 };
 
+const isBackgroundText = (value: unknown): value is BackgroundText => {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.content === "string" &&
+    typeof value.fontFamily === "string" &&
+    typeof value.fontSize === "number" &&
+    typeof value.color === "string" &&
+    (value.annotation === "plain" || value.annotation === "pinyin" || value.annotation === "zhuyin")
+  );
+};
+
 const isImageObject = (value: unknown): value is ImageObject => {
   if (!isRecord(value)) return false;
   return (
@@ -52,6 +64,7 @@ const isPage = (value: unknown): value is Page => {
     typeof value.id === "string" &&
     typeof value.title === "string" &&
     typeof value.updatedAt === "number" &&
+    (value.backgroundText === undefined || isBackgroundText(value.backgroundText)) &&
     Array.isArray(value.blocks) &&
     value.blocks.every(isTextBlock) &&
     Array.isArray(value.drawings) &&
@@ -86,6 +99,7 @@ export const normalizeState = (storedState: StoredState): StoredState => ({
   ...storedState,
   pages: storedState.pages.map((page) => ({
     ...page,
+    backgroundText: page.backgroundText ?? defaultBackgroundText(),
     images: page.images ?? [],
   })),
 });

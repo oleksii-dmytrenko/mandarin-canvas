@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { AnnotationMode, ColorTool, Drawing, DrawingKind, ImageObject, Page, StoredState, TextBlock, Tool } from "../types";
-import { DEFAULT_TEXT_BLOCK_WIDTH, PAGE_HEIGHT, PAGE_WIDTH, STORAGE_KEY, defaultTextStyle, defaultToolColors, defaultToolStrokeWidths } from "../utils/constants";
+import type { AnnotationMode, BackgroundText, ColorTool, Drawing, DrawingKind, ImageObject, Page, StoredState, TextBlock, Tool } from "../types";
+import { DEFAULT_TEXT_BLOCK_WIDTH, PAGE_HEIGHT, PAGE_WIDTH, STORAGE_KEY, defaultBackgroundText, defaultTextStyle, defaultToolColors, defaultToolStrokeWidths } from "../utils/constants";
 import { createId } from "../utils/id";
 import { isStoredState, normalizeState } from "../utils/validation";
 
@@ -9,6 +9,7 @@ const createPage = (index = 1): Page => ({
   id: createId(),
   title: `Page ${index}`,
   updatedAt: Date.now(),
+  backgroundText: defaultBackgroundText(),
   blocks: [],
   drawings: [],
   images: [],
@@ -38,6 +39,7 @@ interface CanvasState extends StoredState {
   toolColors: Record<ColorTool, string>;
   toolStrokeWidths: Record<DrawingKind, number>;
   textStyle: Pick<TextBlock, "fontFamily" | "fontSize" | "annotation">;
+  backgroundTextStyle: Pick<BackgroundText, "fontFamily" | "fontSize" | "annotation">;
   defaultAnnotation: AnnotationMode;
   draftDrawing: Drawing | null;
   focusedBlockId: string | null;
@@ -53,6 +55,7 @@ interface CanvasActions {
   setCurrentColor: (color: string) => void;
   setToolStrokeWidth: (tool: DrawingKind, strokeWidth: number) => void;
   setTextStyle: (patch: Partial<CanvasState["textStyle"]>) => void;
+  setBackgroundTextStyle: (patch: Partial<CanvasState["backgroundTextStyle"]>) => void;
   setDefaultAnnotation: (mode: AnnotationMode) => void;
   setDraftDrawing: (drawing: Drawing | null) => void;
   setFocusedBlockId: (id: string | null) => void;
@@ -69,6 +72,7 @@ interface CanvasActions {
 
   // Text block actions
   addBlock: (x: number, y: number) => string;
+  updateBackgroundText: (patch: Partial<BackgroundText>) => void;
   updateBlock: (id: string, patch: Partial<TextBlock>) => void;
   deleteBlock: (id: string) => void;
 
@@ -103,13 +107,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
     (set, get) => ({
       // Initial state
       ...loadState(),
-      tool: "text",
+      tool: "multiline-text",
       selectedId: null,
       selectedKind: null,
       currentColor: defaultToolColors.text,
       toolColors: defaultToolColors,
       toolStrokeWidths: defaultToolStrokeWidths,
       textStyle: defaultTextStyle,
+      backgroundTextStyle: defaultTextStyle,
       defaultAnnotation: defaultTextStyle.annotation,
       draftDrawing: null,
       focusedBlockId: null,
@@ -121,7 +126,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         const colorTool = colorToolForTool(tool);
         set((state) => ({
           tool,
-          ...(colorTool && { currentColor: state.toolColors[colorTool] }),
+          ...(tool === "multiline-text"
+            ? { currentColor: state.pages.find((page) => page.id === state.activePageId)?.backgroundText.color ?? state.toolColors["multiline-text"] }
+            : colorTool && { currentColor: state.toolColors[colorTool] }),
         }));
       },
       setSelectedId: (id, kind) => set({ selectedId: id, ...(kind !== undefined && { selectedKind: kind }) }),
@@ -139,6 +146,11 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       setTextStyle: (patch) =>
         set((state) => ({
           textStyle: { ...state.textStyle, ...patch },
+          ...(patch.annotation && { defaultAnnotation: patch.annotation }),
+        })),
+      setBackgroundTextStyle: (patch) =>
+        set((state) => ({
+          backgroundTextStyle: { ...state.backgroundTextStyle, ...patch },
           ...(patch.annotation && { defaultAnnotation: patch.annotation }),
         })),
       setDefaultAnnotation: (mode) =>
@@ -208,7 +220,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         const targetPageId = pageId ?? activePageId;
         set({
           pages: pages.map((page) =>
-            page.id === targetPageId ? { ...page, blocks: [], drawings: [], images: [] } : page,
+            page.id === targetPageId
+              ? { ...page, backgroundText: defaultBackgroundText(), blocks: [], drawings: [], images: [] }
+              : page,
           ),
           ...(targetPageId === activePageId && { selectedId: null, selectedKind: null, focusedBlockId: null }),
         });
@@ -239,6 +253,21 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           focusedBlockId: block.id,
         });
         return block.id;
+      },
+
+      updateBackgroundText: (patch) => {
+        const { pages, activePageId } = get();
+        set({
+          pages: pages.map((page) =>
+            page.id === activePageId
+              ? {
+                  ...page,
+                  backgroundText: { ...page.backgroundText, ...patch },
+                  updatedAt: Date.now(),
+                }
+              : page,
+          ),
+        });
       },
 
       updateBlock: (id, patch) => {
@@ -360,9 +389,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 
       // State persistence
       importState: (state, resetDraft = true) => {
+        const normalized = normalizeState(state);
         const newState: Partial<CanvasState> = {
-          activePageId: state.activePageId,
-          pages: state.pages,
+          activePageId: normalized.activePageId,
+          pages: normalized.pages,
           selectedId: null,
           selectedKind: null,
           editingPageId: null,
@@ -374,7 +404,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       },
 
       setStateDirectly: (state) => {
-        set({ activePageId: state.activePageId, pages: state.pages });
+        const normalized = normalizeState(state);
+        set({ activePageId: normalized.activePageId, pages: normalized.pages });
       },
     }),
     {

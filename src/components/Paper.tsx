@@ -9,6 +9,7 @@ import type { DrawingResizeHandle } from "../utils/drawing";
 import { DrawingShape } from "./DrawingShape";
 import { ImageObject as ImageObjectComponent } from "./ImageObject";
 import { TextBlock } from "./TextBlock";
+import { BackgroundTextLayer } from "./BackgroundTextLayer";
 import type { DragState } from "../hooks/useDrag";
 
 interface PaperProps {
@@ -95,6 +96,11 @@ export function Paper({
       return;
     }
     onCommitFocusedText();
+    if (tool === "multiline-text") {
+      setSelectedId(null, null);
+      return;
+    }
+
     const point = tool === "text" || tool === "select" ? pagePoint(event) : drawingPoint(event);
 
     if (tool === "text") {
@@ -107,6 +113,8 @@ export function Paper({
       setSelectedId(null, null);
       return;
     }
+
+    event.preventDefault();
 
     const drawing: Drawing = {
       id: createId(),
@@ -271,6 +279,12 @@ export function Paper({
       onPaste={handlePaste}
       tabIndex={0}
     >
+      <BackgroundTextLayer
+        backgroundText={activePage.backgroundText}
+        isActive={tool === "multiline-text"}
+        composingRef={composingRef}
+      />
+
       <svg className="drawing-layer" ref={drawingLayerRef} viewBox={`0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}`} aria-hidden="true">
         <defs>
           <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
